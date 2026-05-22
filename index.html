@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PacketDiag Viewer — 网络报文结构图编辑器</title>
+<link rel="stylesheet" href="packetdiag.css">
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- Toolbar                                           -->
+<!-- ═══════════════════════════════════════════════ -->
+<div class="toolbar">
+  <span class="logo">⚡ PacketDiag Viewer</span>
+
+  <label for="presetSelect">示例:</label>
+  <select id="presetSelect">
+    <option value="">-- 选择预设 --</option>
+    <option value="custom">自定义协议 (packet.md)</option>
+    <option value="ipv4">IPv4 头部</option>
+    <option value="tcp">TCP 头部</option>
+    <option value="udp">UDP 头部</option>
+    <option value="ethernet">Ethernet II 帧</option>
+    <option value="local_example">TCP 逐行 (local 模式)</option>
+  </select>
+
+  <label for="fontSize" style="margin-left:6px;">字号:</label>
+  <input type="range" id="fontSize" min="10" max="20" value="13" style="width:72px;">
+
+  <label for="numberingSel" style="margin-left:8px;">编号:</label>
+  <select id="numberingSel">
+    <option value="">跟随源码</option>
+    <option value="global">连续编号</option>
+    <option value="local">每行独立编号</option>
+  </select>
+
+  <label for="bitOrderSel">位序:</label>
+  <select id="bitOrderSel">
+    <option value="">跟随源码</option>
+    <option value="asc">升序 (0→31)</option>
+    <option value="desc">降序 (31→0)</option>
+  </select>
+
+  <span class="spacer"></span>
+
+  <span class="err" id="errorMsg"></span>
+
+  <button id="helpBtn" title="语法帮助">? 语法帮助</button>
+
+  <div class="dropdown">
+    <button id="exportBtn" class="accent">⬇ 导出</button>
+    <div class="dropdown-menu" id="exportMenu">
+      <button id="exportPNG">导出 PNG 图片</button>
+      <button id="exportSVG">导出 SVG 矢量图</button>
+      <button id="exportHTML">导出 HTML 文件</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- Main Content                                      -->
+<!-- ═══════════════════════════════════════════════ -->
+<div class="main" id="mainContainer">
+  <!-- Left panel: Editor -->
+  <div class="panel panel-left" id="leftPanel">
+    <div class="panel-hdr">
+      PacketDiag 源码
+      <span class="badge">packetdiag { … }</span>
+    </div>
+    <div class="editor-wrap">
+      <textarea id="editor" spellcheck="false"></textarea>
+    </div>
+  </div>
+
+  <!-- Resizer -->
+  <div class="resizer" id="resizer"></div>
+
+  <!-- Right panel: Preview -->
+  <div class="panel panel-right" id="rightPanel">
+    <div class="panel-hdr">渲染预览</div>
+    <div class="preview-wrap" id="previewWrap">
+      <canvas id="canvas"></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- Status bar -->
+<div class="statusbar">
+  <span id="statusInfo">就绪</span>
+</div>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- Toast                                              -->
+<!-- ═══════════════════════════════════════════════ -->
+<div class="toast" id="toast"></div>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- Help Modal                                         -->
+<!-- ═══════════════════════════════════════════════ -->
+<div class="modal-overlay" id="helpModal">
+  <div class="modal">
+    <div class="modal-hdr">
+      <span>PacketDiag 语法参考</span>
+      <button class="modal-close" id="modalClose">&times;</button>
+    </div>
+    <div class="modal-body">
+
+<h2>快速入门</h2>
+<p>PacketDiag 用纯文本描述网络报文的<strong>位级结构</strong>，可生成报文头部示意图。</p>
+
+<pre>packetdiag {
+  colwidth = 32;
+  node_height = 40;
+
+  // 这是注释
+  0-31: 字段名称 [color = "#hex颜色"];
+}</pre>
+
+<h2>基本结构</h2>
+<p>所有内容必须包裹在 <code>packetdiag { … }</code> 块中。</p>
+
+<h3>配置参数</h3>
+<table>
+  <tr><th>参数</th><th>说明</th><th>默认值</th><th>示例</th></tr>
+  <tr><td><code>colwidth</code></td><td>列宽比例</td><td>32</td><td><code>colwidth = 32;</code></td></tr>
+  <tr><td><code>node_height</code></td><td>单元格高度(px)</td><td>72</td><td><code>node_height = 40;</code></td></tr>
+  <tr><td><code>default_fontsize</code></td><td>默认字体大小</td><td>12</td><td><code>default_fontsize = 13;</code></td></tr>
+</table>
+
+<h3>位范围定义</h3>
+<p>每行定义一个字段，格式为 <code>start-end: 字段名 [选项]</code>：</p>
+<pre>0-3:   Version   [color = "#a8d8ea"];
+4-7:   IHL;
+8-15:  "带空格的标签";
+16-31: Total Length;</pre>
+
+<p>单个比特位可以省略结束值：</p>
+<pre>154: NS_E;
+203: R;</pre>
+
+<h3>字段选项</h3>
+<table>
+  <tr><th>选项</th><th>说明</th><th>示例</th></tr>
+  <tr><td><code>color</code></td><td>单元格背景色</td><td><code>[color = "#fce5cd"]</code></td></tr>
+  <tr><td><code>textcolor</code></td><td>文字颜色</td><td><code>[textcolor = "red"]</code></td></tr>
+</table>
+<p>支持的颜色格式：十六进制（<code>#rrggbb</code>）、CSS 颜色名（<code>red</code>、<code>lightblue</code>）。</p>
+
+<h3>注释</h3>
+<p>使用 <code>//</code> 开头的行作为注释：</p>
+<pre>// 这是注释
+0-31: FIELD;  // 行尾注释</pre>
+
+<h3>区段标题</h3>
+<p>用 <code>// ----</code> 分隔不同区段，区段之间会有视觉分隔：</p>
+<pre>// ---- IPv4 头部 ----
+0-3: Version;
+...
+
+// ---- TCP 头部 ----
+0-15: Source Port;
+...</pre>
+
+<h3>配置参数（完整）</h3>
+<table>
+  <tr><th>参数</th><th>说明</th><th>可选值</th><th>示例</th></tr>
+  <tr><td><code>colwidth</code></td><td>列宽比例</td><td>数字</td><td><code>colwidth = 32;</code></td></tr>
+  <tr><td><code>node_height</code></td><td>单元格高度(px)</td><td>数字</td><td><code>node_height = 40;</code></td></tr>
+  <tr><td><code>default_fontsize</code></td><td>默认字体大小</td><td>数字</td><td><code>default_fontsize = 12;</code></td></tr>
+  <tr><td><code>numbering</code></td><td>编号模式</td><td><code>"global"</code> / <code>"local"</code></td><td><code>numbering = "local";</code></td></tr>
+  <tr><td><code>bit_order</code></td><td>位序方向</td><td><code>"asc"</code> / <code>"desc"</code></td><td><code>bit_order = "desc";</code></td></tr>
+</table>
+
+<h3>连续编号 vs 每行独立编号</h3>
+<p><strong>连续编号 (global)</strong>：位号全局唯一，字段按绝对位号布局（默认模式）。</p>
+<pre>packetdiag {
+  colwidth = 32;
+  numbering = "global";   // 默认值，可省略
+
+  0-15:  Port;
+  16-31: Dest Port;
+  // 下一个字段从 32 开始
+  32-63: Seq Number;
+}</pre>
+
+<p><strong>每行独立编号 (local)</strong>：每行独立编号，多行可重复使用 <code>0-31</code>。配合 <code>// @row</code> 显式分行。</p>
+<pre>packetdiag {
+  colwidth = 32;
+  numbering = "local";
+
+  // @row: Word 1
+  0-15:  Port;
+  16-31: Dest Port;
+
+  // @row: Word 2
+  0-31:  Seq Number;
+
+  // @row: Word 3
+  0-31:  Ack Number;
+}</pre>
+<p>⚠ 在 local 模式下，字段位号必须 <code>&lt; colwidth</code>，超出会报错。</p>
+
+<h3>位序 (bit_order)</h3>
+<ul style="padding-left:18px;line-height:1.8;">
+  <li><code>bit_order = "asc"</code>（默认）：位号从左到右递增（0 在左，31 在右）</li>
+  <li><code>bit_order = "desc"</code>：位号从右到左递增（31 在左，0 在右），与许多协议规范图一致</li>
+</ul>
+
+<h3>@row 行分隔</h3>
+<p><code>// @row</code> 显式开始新视觉行：</p>
+<pre>// @row             — 开始新行，无标签
+// @row: Word 1     — 开始新行，行标签 "Word 1"</pre>
+<p>第一行不需要写 <code>// @row</code>，从源码顶部开始。</p>
+
+<h3>@left 行注释</h3>
+<p><code>// @left: 文字</code> 在下一行左侧显示注释文字：</p>
+<pre>// @left: ← 这是源端口
+0-15: Source Port;</pre>
+
+<h3>变体 / 备选格式</h3>
+<p>用 <code>变体</code>、<code>variant</code> 或 <code>alternative</code> 关键字标记同一比特位的不同解释方式，将渲染为独立行：</p>
+<pre>// 变体 1: BFD上送
+256-287: BFD_DISCR [color = "#fce5cd"];
+
+// 变体 2: MOD上送
+288-319: MOD_FIELD [color = "#fce5cd"];</pre>
+
+<h2>完整示例</h2>
+<pre>packetdiag {
+  colwidth = 32;
+  node_height = 48;
+  default_fontsize = 12;
+
+  // ---- IPv4 Header (20 bytes) ----
+
+  0-3:   Version         [color = "#a8d8ea"];
+  4-7:   IHL             [color = "#a8d8ea"];
+  8-15:  Type of Service [color = "#b5e8c3"];
+  16-31: Total Length    [color = "#f5d6a8"];
+
+  32-47: Identification  [color = "#d5c4e8"];
+  48-51: Flags           [color = "#f5f0b0"];
+  52-63: Fragment Offset [color = "#f5f0b0"];
+
+  64-71: TTL             [color = "#f5b0b0"];
+  72-79: Protocol        [color = "#f5b0b0"];
+  80-95: Header Checksum [color = "#d8d8d8"];
+
+  96-127:  Source Address       [color = "#a0c8f0"];
+  128-159: Destination Address  [color = "#a0c8f0"];
+}</pre>
+
+<h2>技巧</h2>
+<ul style="padding-left:18px;line-height:1.8;">
+  <li>位范围必须使用连续编号，从小到大排列</li>
+  <li>带特殊字符的标签用双引号包裹，如 <code>"Ethernet Type"</code></li>
+  <li>区段之间的比特位范围可以不同（如 UDP 0–63, TCP 0–255）</li>
+  <li>如果未指定颜色，系统会自动循环使用调色板</li>
+  <li>工具栏「编号」和「位序」下拉框可覆盖源码配置，选择「跟随源码」即使用源码中的设置</li>
+  <li><strong>双击</strong>预览图中任意字段可编辑其标签文字，修改自动同步回源码</li>
+  <li>导出支持 PNG（位图）、SVG（矢量图）和 HTML（离线可打开）三种格式</li>
+</ul>
+
+    </div>
+  </div>
+</div>
+
+<script src="packetdiag.js"></script>
+</body>
+</html>
