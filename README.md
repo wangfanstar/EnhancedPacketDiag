@@ -4,13 +4,7 @@
 
 ## 打开方式
 
-直接用浏览器打开 `index.html`：
-
-```text
-E:\MCP_PROJECT\PacketDiagEnhanced\packetdiag-offline-html\index.html
-```
-
-不需要本地服务、Node、Python、Kroki、CDN 或互联网连接。
+直接用浏览器打开 `index.html`。不需要本地服务、Node、Python、Kroki、CDN 或互联网连接。
 
 ## 基础用法
 
@@ -18,6 +12,8 @@ E:\MCP_PROJECT\PacketDiagEnhanced\packetdiag-offline-html\index.html
 - 右侧会自动刷新渲染结果。
 - `示例` 可以切换内置 PacketDiag、TCP、IPv4、UDP、Ethernet 示例。
 - `字号` 只调整源码编辑器字号，不改变导出图。
+- `位序` 可选择 `0 -> 31` 或 `31 -> 0`。
+- `编号` 可选择 `连续编号` 或 `每行独立`。
 - `适配宽度` 打开时图片宽度跟随预览区域，关闭时使用较宽的固定画布。
 - 点击 `导出 PNG` 可保存当前渲染图。
 - 点击 `帮助` 可在页面内查看使用说明。
@@ -41,6 +37,7 @@ packetdiag {
   node_height = 40;
   default_fontsize = 12;
   bit_order = "desc";
+  numbering = "global";
 
   // ---- Section Title ----
   // @left: 这段文字会显示在下一条字段所在行的左侧
@@ -52,16 +49,16 @@ packetdiag {
 
 已支持：
 
-- `colwidth`
-- `node_height`
-- `default_fontsize`
+- `colwidth`、`node_height`、`default_fontsize`
 - `bit_order = "asc"` 或 `bit_order = "desc"`
+- `numbering = "global"` 或 `numbering = "local"`
 - 单 bit：`154: NS_E;`
 - bit 范围：`0-31: HOST_MAC;`
 - quoted label：`96-111: "0x8100";`
 - 字段属性：`color`、`textcolor`、`rotate = 270`、`colheight`
 - 区段标题注释：`// ---- 标题 ----`
 - 左侧行注释：`// @left: 注释文字`
+- 显式行分隔：`// @row` / `// @row: 行标签`
 - 兼容原有变体行标签：`// 变体 1: ...`
 
 ## 反向位序
@@ -79,6 +76,53 @@ bit_order = "desc";
 优先级：工具栏显式选择 `0 -> 31` 或 `31 -> 0` 会覆盖源码；选择 `跟随源码` 时使用 `bit_order`，源码未配置时默认 `0 -> 31`。
 
 反向位序只改变每个 `colwidth` 行内的显示方向，不改变源码中的 bit 编号和字段含义。
+
+## 连续编号 vs 每行独立编号
+
+### 连续编号 (global, 默认)
+
+位号全局唯一，字段按绝对位号跨行布局：
+
+```packetdiag
+packetdiag {
+  colwidth = 32;
+  numbering = "global";
+
+  0-15: Source Port;
+  16-31: Dest Port;
+  // 下一个字段从 32 开始，自动进入下一行
+  32-63: Sequence Number;
+}
+```
+
+### 每行独立编号 (local)
+
+每行独立从 0 开始编号，配合 `// @row` 显式分行：
+
+```packetdiag
+packetdiag {
+  colwidth = 32;
+  numbering = "local";
+
+  0-15: Source Port;
+  16-31: Dest Port;
+
+  // @row: Word 1
+  0-31: Sequence Number;
+
+  // @row: Word 2
+  0-31: Ack Number;
+}
+```
+
+工具栏「编号」下拉框可覆盖源码配置。在 local 模式下字段位号必须 < colwidth。
+
+### @row 行分隔
+
+- `// @row` — 开始新视觉行，无标签
+- `// @row: Word 1` — 开始新视觉行，行标签 "Word 1"
+- 第一行不需要写 @row
+- @row 在 global 模式下也会阻止自动行合并
 
 ## 左侧注释
 
@@ -102,7 +146,7 @@ PNG 导出会包含当前全局注释、行注释和位序效果。
 
 ## 常见问题
 
-- 页面空白：确认打开的是 `packetdiag-offline-html/index.html`，并且 `assets/app.js` 和 `assets/styles.css` 与它保持同级目录结构。
+- 页面空白：确认打开的是 `index.html`，并且 `assets/app.js` 和 `assets/styles.css` 在 `assets/` 子目录下。
 - 中文乱码：请确认文件以 UTF-8 保存。
 - 位序没有反向：检查工具栏 `位序` 是否选择了 `跟随源码`，以及源码中是否配置了 `bit_order = "desc"`。
 - 注释没有显示：`// @left:` 需要写在目标字段前面，作用于下一条字段所在行。

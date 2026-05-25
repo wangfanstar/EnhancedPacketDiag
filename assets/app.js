@@ -143,6 +143,7 @@ const dom = {
   previewWrap: document.getElementById("previewWrap"),
   fitWidth: document.getElementById("fitWidth"),
   bitOrderMode: document.getElementById("bitOrderMode"),
+  numberingMode: document.getElementById("numberingMode"),
   globalNote: document.getElementById("globalNote"),
   helpButton: document.getElementById("helpButton"),
   helpModal: document.getElementById("helpModal"),
@@ -159,14 +160,16 @@ let updateTimer = 0;
 let lastParsed = null;
 let activeCanvasEditor = null;
 
-function parsePacketDiag(source) {
+function parsePacketDiag(source, overrides) {
+  const ov = overrides || {};
   const text = extractPacketSource(source);
   const lines = text.split(/\r?\n/);
   const config = {
     colwidth: 32,
     node_height: 72,
     default_fontsize: 12,
-    bit_order: "asc"
+    bit_order: "asc",
+    numbering: "global"
   };
   const sections = [];
   const warnings = [];
@@ -174,12 +177,14 @@ function parsePacketDiag(source) {
   let pendingRowLabel = "";
   let pendingRowNote = "";
   let hasBody = false;
+  let localRowIndex = 0;
 
   function finishSection() {
     if (currentSection.fields.length > 0 || currentSection.name) {
       sections.push(currentSection);
     }
     currentSection = createSection("");
+    localRowIndex = 0;
   }
 
   for (let index = 0; index < lines.length; index += 1) {
@@ -199,8 +204,13 @@ function parsePacketDiag(source) {
 
     if (comment) {
       const leftNote = parseLeftNote(comment);
-      const sectionName = leftNote ? "" : parseSectionComment(comment);
-      if (leftNote && line === "") {
+      const atRowLabel = parseAtRow(comment);
+      const sectionName = (!leftNote && atRowLabel === null) ? parseSectionComment(comment) : "";
+
+      if (atRowLabel !== null) {
+        localRowIndex += 1;
+        pendingRowLabel = atRowLabel || "";
+      } else if (leftNote && line === "") {
         pendingRowNote = appendNote(pendingRowNote, leftNote);
       } else if (leftNote) {
         inlineLeftNote = leftNote;
@@ -226,7 +236,11 @@ function parsePacketDiag(source) {
 
     const field = parseFieldLine(line, index + 1);
     if (field) {
-      const rowIndex = Math.floor(field.start / normalizedColwidth(config.colwidth));
+      const numbering = config.numbering === "local" ? "local" : "global";
+      const colW = normalizedColwidth(config.colwidth);
+      const rowIndex = numbering === "local" ? localRowIndex : Math.floor(field.start / colW);
+      field.visualRowIndex = rowIndex;
+
       if (pendingRowLabel && !currentSection.rowLabels.has(rowIndex)) {
         currentSection.rowLabels.set(rowIndex, pendingRowLabel);
       }
@@ -254,6 +268,8 @@ function parsePacketDiag(source) {
   }
 
   const safeConfig = sanitizeConfig(config, warnings);
+  if (ov.numbering) safeConfig.numbering = ov.numbering;
+  if (ov.bit_order) safeConfig.bit_order = ov.bit_order;
   return {
     config: safeConfig,
     sections: nonEmptySections.map((section) => buildSectionRows(section, safeConfig)),
@@ -324,6 +340,12 @@ function isUsefulRowLabel(comment) {
 function parseLeftNote(comment) {
   const match = comment.match(/^@left\s*:\s*(.+)$/i);
   return match ? match[1].trim() : "";
+}
+
+function parseAtRow(comment) {
+  const match = comment.match(/^@row\s*:?\s*(.*)$/i);
+  if (!match) return null;
+  return match[1].trim();
 }
 
 function appendNote(current, next) {
@@ -443,8 +465,21 @@ function sanitizeConfig(config, warnings = []) {
     colwidth: normalizedColwidth(config.colwidth),
     node_height: clampNumber(config.node_height, 28, 180, 72),
     default_fontsize: clampNumber(config.default_fontsize, 8, 28, 12),
-    bit_order: normalizeBitOrder(config.bit_order, warnings)
+    bit_order: normalizeBitOrder(config.bit_order, warnings),
+    numbering: normalizeNumbering(config.numbering, warnings)
   };
+}
+
+function normalizeNumbering(value, warnings = []) {
+  if (value === undefined || value === null || value === "") {
+    return "global";
+  }
+  const mode = String(value).trim().toLowerCase();
+  if (mode === "global" || mode === "local") {
+    return mode;
+  }
+  warnings.push(`numbering = "${value}" 无效，已按 global 渲染`);
+  return "global";
 }
 
 function normalizeBitOrder(value, warnings = []) {
@@ -476,25 +511,29 @@ function buildSectionRows(section, config) {
   const rowsByIndex = new Map();
   const fragmentsByField = new Map();
 
-  for (const field of section.fields) {
-    const firstRow = Math.floor(field.start / colwidth);
-    const lastRow = Math.floor(field.end / colwidth);
-    const fragments = [];
+  const numbering = config.numbering === "local" ? "local" : "global";
 
-    for (let rowIndex = firstRow; rowIndex <= lastRow; rowIndex += 1) {
-      const rowStartBit = rowIndex * colwidth;
-      const fragmentStart = Math.max(field.start, rowStartBit);
-      const fragmentEnd = Math.min(field.end, rowStartBit + colwidth - 1);
+  for (const field of section.fields) {
+    let fragments;
+
+    if (numbering === "local") {
+      if (field.end >= colwidth) {
+        throw new Error(
+          `字段 "${field.label}" 的位范围 ${field.start}-${field.end} 超出 colwidth (${colwidth})。` +
+          `在 numbering="local" 模式下，每行位号必须 < colwidth。`
+        );
+      }
+      const rowIndex = field.visualRowIndex;
       const fragment = {
         field,
         rowIndex,
-        start: fragmentStart,
-        end: fragmentEnd,
-        colStart: fragmentStart - rowStartBit,
-        colEnd: fragmentEnd - rowStartBit,
+        start: field.start,
+        end: field.end,
+        colStart: field.start,
+        colEnd: field.end,
         drawLabel: false
       };
-      fragments.push(fragment);
+      fragments = [fragment];
 
       if (!rowsByIndex.has(rowIndex)) {
         rowsByIndex.set(rowIndex, {
@@ -505,6 +544,36 @@ function buildSectionRows(section, config) {
         });
       }
       rowsByIndex.get(rowIndex).fragments.push(fragment);
+    } else {
+      const firstRow = Math.floor(field.start / colwidth);
+      const lastRow = Math.floor(field.end / colwidth);
+      fragments = [];
+
+      for (let rowIdx = firstRow; rowIdx <= lastRow; rowIdx += 1) {
+        const rowStartBit = rowIdx * colwidth;
+        const fragmentStart = Math.max(field.start, rowStartBit);
+        const fragmentEnd = Math.min(field.end, rowStartBit + colwidth - 1);
+        const fragment = {
+          field,
+          rowIndex: rowIdx,
+          start: fragmentStart,
+          end: fragmentEnd,
+          colStart: fragmentStart - rowStartBit,
+          colEnd: fragmentEnd - rowStartBit,
+          drawLabel: false
+        };
+        fragments.push(fragment);
+
+        if (!rowsByIndex.has(rowIdx)) {
+          rowsByIndex.set(rowIdx, {
+            index: rowIdx,
+            label: section.rowLabels.get(rowIdx) || "",
+            note: section.rowNotes.get(rowIdx) || "",
+            fragments: []
+          });
+        }
+        rowsByIndex.get(rowIdx).fragments.push(fragment);
+      }
     }
 
     fragmentsByField.set(field.id, fragments);
@@ -629,7 +698,7 @@ function renderDiagram(parsed, canvas, options = {}) {
 
     for (const rowLayout of layout.rows) {
       const row = rowLayout.row;
-      const caption = row.label || `${row.index * colwidth}-${row.index * colwidth + colwidth - 1}`;
+      const caption = row.label || (config.numbering === "local" ? `0-${colwidth - 1}` : `${row.index * colwidth}-${row.index * colwidth + colwidth - 1}`);
       const actualRowHeight = rowLayout.height;
       drawRowCaption(ctx, caption, labelX, y + rowCaptionHeight, rowLabelWidth - 12);
       y += rowCaptionHeight;
@@ -1010,10 +1079,15 @@ function defaultColorFor(label) {
 function update() {
   currentSource = dom.editor.value;
   try {
-    const parsed = parsePacketDiag(currentSource);
+    const firstPass = parsePacketDiag(currentSource);
+    const bitOrder = getEffectiveBitOrder(firstPass);
+    const numbering = getEffectiveNumbering(firstPass);
+    const needsReparse = numbering !== firstPass.config.numbering || bitOrder !== firstPass.config.bit_order;
+    const parsed = needsReparse
+      ? parsePacketDiag(currentSource, { numbering, bit_order: bitOrder })
+      : firstPass;
     lastParsed = parsed;
     const availableWidth = Math.max(560, dom.previewWrap.clientWidth - 48);
-    const bitOrder = getEffectiveBitOrder(parsed);
     const layout = renderDiagram(parsed, dom.canvas, {
       width: dom.fitWidth.checked ? availableWidth : 1040,
       fitWidth: dom.fitWidth.checked,
@@ -1041,7 +1115,8 @@ function update() {
     renderDiagram({ config: sanitizeConfig({}), sections: [], fields: [] }, dom.canvas, {
       width: Math.max(560, dom.previewWrap.clientWidth - 48),
       bitOrder: "asc",
-      globalNote: ""
+      globalNote: "",
+      numbering: "global"
     });
   }
 }
@@ -1052,6 +1127,14 @@ function getEffectiveBitOrder(parsed) {
     return mode;
   }
   return parsed?.config?.bit_order === "desc" ? "desc" : "asc";
+}
+
+function getEffectiveNumbering(parsed) {
+  const mode = dom.numberingMode?.value;
+  if (mode === "global" || mode === "local") {
+    return mode;
+  }
+  return parsed?.config?.numbering === "local" ? "local" : "global";
 }
 
 function bitOrderLabel(bitOrder) {
@@ -1353,6 +1436,7 @@ function init() {
   dom.editor.value = PRESETS.packet;
   dom.presetSelect.value = "packet";
   dom.bitOrderMode.value = "source";
+  dom.numberingMode.value = "source";
   dom.editor.style.fontSize = `${dom.editorFontSize.value}px`;
 
   dom.presetSelect.addEventListener("change", () => {
@@ -1360,6 +1444,7 @@ function init() {
     const source = PRESETS[dom.presetSelect.value];
     if (source) {
       dom.editor.value = source;
+      dom.numberingMode.value = "source";
       update();
     }
   });
@@ -1370,6 +1455,7 @@ function init() {
   });
   dom.fitWidth.addEventListener("change", update);
   dom.bitOrderMode.addEventListener("change", update);
+  dom.numberingMode.addEventListener("change", update);
   dom.globalNote.addEventListener("input", scheduleUpdate);
   dom.helpButton.addEventListener("click", openHelp);
   dom.helpCloseButton.addEventListener("click", closeHelp);

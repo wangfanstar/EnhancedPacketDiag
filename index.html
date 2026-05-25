@@ -40,6 +40,15 @@
       </select>
     </label>
 
+    <label class="control">
+      <span>编号</span>
+      <select id="numberingMode">
+        <option value="source">跟随源码</option>
+        <option value="global">连续编号</option>
+        <option value="local">每行独立</option>
+      </select>
+    </label>
+
     <label class="toggle">
       <input id="fitWidth" type="checkbox" checked>
       <span>适配宽度</span>
@@ -95,6 +104,7 @@
   node_height = 40;
   default_fontsize = 12;
   bit_order = "desc";
+  numbering = "global";
 
   // ---- Section Title ----
   // @left: 这段文字会显示在下一条字段所在行左侧
@@ -102,9 +112,46 @@
   16-31: Destination Port [textcolor = "red"];
 }</code></pre>
 
+        <h2>连续编号 vs 每行独立编号</h2>
+        <p><strong>连续编号 (global, 默认)</strong>：位号全局唯一，字段按绝对位号跨行布局。</p>
+        <pre><code>packetdiag {
+  colwidth = 32;
+  numbering = "global";   // 默认值，可省略
+
+  // Row 0
+  0-15: Source Port;
+  16-31: Dest Port;
+  // 下一个字段从 32 开始，自动进入下一行
+  32-63: Sequence Number;
+}</code></pre>
+
+        <p><strong>每行独立编号 (local)</strong>：每行独立从 0 开始编号，配合 <code>// @row</code> 显式分行。</p>
+        <pre><code>packetdiag {
+  colwidth = 32;
+  numbering = "local";
+
+  0-15: Source Port;
+  16-31: Dest Port;
+
+  // @row: Word 1
+  0-31: Sequence Number;
+
+  // @row: Word 2
+  0-31: Ack Number;
+}</code></pre>
+        <p>工具栏「编号」下拉框可覆盖源码中的 <code>numbering</code> 配置；选择 <code>每行独立</code> 即可启用 local 模式。</p>
+        <p>⚠ 在 local 模式下，字段位号必须 <code>&lt; colwidth</code>，超出会报错。</p>
+
+        <h3>@row 行分隔</h3>
+        <p><code>// @row</code> 显式开始新视觉行：</p>
+        <pre><code>// @row             — 开始新行，无标签
+// @row: Word 1     — 开始新行，行标签 "Word 1"</code></pre>
+        <p>第一行不需要写 <code>// @row</code>，从源码顶部开始。@row 在 global 模式下也会阻止自动行合并。</p>
+
         <h2>常用功能</h2>
         <ul>
           <li><strong>位序</strong>：工具栏可选择跟随源码、<code>0 -> 31</code> 或 <code>31 -> 0</code>；源码中可写 <code>bit_order = "asc"</code> 或 <code>bit_order = "desc"</code>。</li>
+          <li><strong>编号模式</strong>：工具栏可选择跟随源码、<code>连续编号</code> 或 <code>每行独立</code>；源码中可写 <code>numbering = "global"</code> 或 <code>numbering = "local"</code>。</li>
           <li><strong>左侧注释</strong>：全局注释输入框显示在图片左侧顶部；源码中 <code>// @left: 注释文字</code> 会显示在下一条字段所在行左侧。</li>
           <li><strong>字段样式</strong>：支持 <code>color</code>、<code>textcolor</code>、<code>rotate = 270</code>、<code>colheight</code>。</li>
           <li><strong>导出</strong>：点击导出 PNG，会包含当前字段文字、位序、全局注释和行注释。</li>
@@ -114,6 +161,7 @@
         <ul>
           <li>注释没有显示：确认 <code>// @left:</code> 写在目标字段前面。</li>
           <li>位序没有反向：确认工具栏位序为 <code>跟随源码</code> 且源码写了 <code>bit_order = "desc"</code>，或直接在工具栏选择 <code>31 -> 0</code>。</li>
+          <li>编号模式不对：确认工具栏编号为 <code>跟随源码</code> 且源码写了 <code>numbering = "local"</code>，或直接在工具栏选择 <code>每行独立</code>。</li>
           <li>中文乱码：确认文件以 UTF-8 保存。</li>
         </ul>
       </div>
