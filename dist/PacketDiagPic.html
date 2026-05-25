@@ -1,4 +1,686 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <title>PacketDiag Offline Viewer</title>
+  <style>
+:root {
+  --bg: #151716;
+  --panel: #202321;
+  --panel-strong: #292d2a;
+  --panel-soft: #252926;
+  --border: #3a403b;
+  --border-strong: #59625a;
+  --text: #eef3ef;
+  --muted: #aab4ad;
+  --accent: #2dd4bf;
+  --accent-strong: #14b8a6;
+  --warning: #f59e0b;
+  --error: #fb7185;
+  --preview-bg: #f3f4f2;
+  --canvas-bg: #ffffff;
+  --shadow: rgba(0, 0, 0, 0.24);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+  overflow: hidden;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 52px;
+  padding: 8px 14px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 238px;
+}
+
+.brand-mark {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--accent);
+  border-radius: 4px;
+  box-shadow: inset 6px 0 0 rgba(45, 212, 191, 0.24), inset -6px 0 0 rgba(245, 158, 11, 0.22);
+}
+
+.brand-title {
+  font-size: 15px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.control {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+select,
+button {
+  min-height: 32px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: #161917;
+  color: var(--text);
+}
+
+select {
+  min-width: 148px;
+  padding: 0 30px 0 10px;
+}
+
+#presetSelect {
+  min-width: 188px;
+}
+
+button {
+  padding: 0 12px;
+  cursor: pointer;
+}
+
+button:hover {
+  border-color: var(--accent);
+  background: #1c2320;
+}
+
+button:active {
+  transform: translateY(1px);
+}
+
+input[type="range"] {
+  width: 92px;
+  accent-color: var(--accent);
+}
+
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.toggle input {
+  accent-color: var(--accent);
+}
+
+.toolbar-spacer {
+  flex: 1;
+  min-width: 16px;
+}
+
+.error-message {
+  max-width: 360px;
+  overflow: hidden;
+  color: var(--error);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace {
+  display: flex;
+  height: calc(100vh - 78px);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.panel {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.source-panel {
+  width: 48%;
+  min-width: 300px;
+  background: #171a18;
+}
+
+.preview-panel {
+  flex: 1;
+  min-width: 340px;
+  background: var(--preview-bg);
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 31px;
+  padding: 0 14px;
+  background: var(--panel-strong);
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.panel-hint {
+  color: #7f8b83;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+#editor {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  padding: 14px 16px;
+  resize: none;
+  border: 0;
+  outline: none;
+  background: #171a18;
+  color: #eef3ef;
+  font-family: "Cascadia Mono", "Cascadia Code", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.58;
+  tab-size: 2;
+}
+
+.note-editor {
+  display: grid;
+  gap: 6px;
+  padding: 10px 14px 12px;
+  background: #1c201d;
+  border-bottom: 1px solid var(--border);
+}
+
+.note-editor label {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+#globalNote {
+  width: 100%;
+  min-height: 64px;
+  max-height: 128px;
+  padding: 9px 10px;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  outline: none;
+  background: #151816;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+#globalNote:focus {
+  border-color: var(--accent);
+}
+
+#globalNote::placeholder {
+  color: #747e76;
+}
+
+#editor::selection {
+  background: rgba(45, 212, 191, 0.28);
+}
+
+.resizer {
+  width: 6px;
+  flex: 0 0 6px;
+  cursor: col-resize;
+  background: #3f473f;
+  border-right: 1px solid rgba(255, 255, 255, 0.05);
+  border-left: 1px solid rgba(0, 0, 0, 0.18);
+}
+
+.resizer:hover,
+.resizer.is-active {
+  background: var(--accent-strong);
+}
+
+.preview-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 24px;
+  background:
+    linear-gradient(90deg, rgba(0, 0, 0, 0.035) 1px, transparent 1px),
+    linear-gradient(0deg, rgba(0, 0, 0, 0.035) 1px, transparent 1px),
+    var(--preview-bg);
+  background-size: 18px 18px;
+}
+
+.canvas-label-editor {
+  position: absolute;
+  z-index: 4;
+  min-width: 112px;
+  min-height: 30px;
+  padding: 4px 8px;
+  border: 2px solid var(--accent-strong);
+  border-radius: 6px;
+  outline: none;
+  background: #ffffff;
+  color: #111827;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.22);
+}
+
+#diagramCanvas {
+  display: block;
+  margin: 0 auto;
+  background: var(--canvas-bg);
+  box-shadow: 0 12px 28px var(--shadow);
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(9, 12, 10, 0.66);
+}
+
+.modal-backdrop[hidden] {
+  display: none;
+}
+
+.help-dialog {
+  display: flex;
+  width: min(960px, 100%);
+  max-height: min(760px, calc(100vh - 48px));
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: #f9fbfa;
+  color: #18201b;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.38);
+}
+
+.help-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 18px;
+  border-bottom: 1px solid #dce4df;
+}
+
+.help-header h1 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.icon-button {
+  min-width: 34px;
+  width: 34px;
+  padding: 0;
+  border-color: #b7c4bc;
+  background: #eef4f1;
+  color: #18201b;
+  font-size: 22px;
+  line-height: 1;
+}
+
+.help-content {
+  overflow: auto;
+  padding: 18px;
+  font-size: 14px;
+  line-height: 1.58;
+}
+
+.help-content h2 {
+  margin: 18px 0 8px;
+  font-size: 15px;
+}
+
+.help-content h2:first-child {
+  margin-top: 0;
+}
+
+.help-content p,
+.help-content ul {
+  margin: 0 0 12px;
+}
+
+.help-content ul {
+  padding-left: 20px;
+}
+
+/* Help dialog tables */
+.help-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 8px 0 16px;
+  font-size: 13px;
+}
+
+.help-content th {
+  text-align: left;
+  padding: 6px 10px;
+  background: #e6ede8;
+  border: 1px solid #d4dcd6;
+  font-weight: 700;
+  color: #18201b;
+}
+
+.help-content td {
+  padding: 5px 10px;
+  border: 1px solid #dce4df;
+  vertical-align: top;
+  color: #2d3831;
+}
+
+.help-content td code {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.help-content code {
+  border-radius: 4px;
+  background: #e8efeb;
+  padding: 1px 4px;
+  font-family: "Cascadia Mono", "Cascadia Code", Consolas, "Liberation Mono", Menlo, monospace;
+}
+
+.help-content pre {
+  overflow: auto;
+  margin: 10px 0 14px;
+  padding: 12px;
+  border-radius: 6px;
+  background: #17201b;
+  color: #edf7f1;
+}
+
+.help-content pre code {
+  background: transparent;
+  padding: 0;
+}
+
+.statusbar {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  min-height: 26px;
+  padding: 0 14px;
+  background: var(--panel-soft);
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+#statusInfo {
+  color: #d7eee7;
+}
+
+@media (max-width: 760px) {
+  body {
+    overflow: auto;
+  }
+
+  .toolbar {
+    align-items: stretch;
+    flex-wrap: wrap;
+  }
+
+  .brand {
+    width: 100%;
+  }
+
+  .workspace {
+    flex-direction: column;
+    height: auto;
+    min-height: calc(100vh - 104px);
+  }
+
+  .source-panel,
+  .preview-panel {
+    width: 100%;
+    min-width: 0;
+    min-height: 48vh;
+  }
+
+  .resizer {
+    display: none;
+  }
+
+  .statusbar {
+    flex-wrap: wrap;
+    height: auto;
+    padding-top: 5px;
+    padding-bottom: 5px;
+    white-space: normal;
+  }
+}
+
+  </style>
+</head>
+<body>
+<header class="toolbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span class="brand-title">PacketDiag Offline Viewer</span>
+    </div>
+
+    <label class="control">
+      <span>示例</span>
+      <select id="presetSelect">
+        <option value="packet">packet.md 自定义协议</option>
+        <option value="tcp">TCP Header</option>
+        <option value="ipv4">IPv4 Header</option>
+        <option value="udp">UDP Header</option>
+        <option value="ethernet">Ethernet Frame</option>
+        <option value="standard">Standard Compat Demo</option>
+      </select>
+    </label>
+
+    <label class="control">
+      <span>字号</span>
+      <input id="editorFontSize" type="range" min="11" max="18" value="13">
+    </label>
+
+    <label class="control">
+      <span>位序</span>
+      <select id="bitOrderMode">
+        <option value="source">跟随源码</option>
+        <option value="asc">0 -> 31</option>
+        <option value="desc">31 -> 0</option>
+      </select>
+    </label>
+
+    <label class="control">
+      <span>编号</span>
+      <select id="numberingMode">
+        <option value="source">跟随源码</option>
+        <option value="global">连续编号</option>
+        <option value="local">每行独立</option>
+      </select>
+    </label>
+
+    <label class="toggle">
+      <input id="fitWidth" type="checkbox" checked>
+      <span>适配宽度</span>
+    </label>
+
+    <div class="toolbar-spacer"></div>
+    <output id="errorMessage" class="error-message" aria-live="polite"></output>
+    <button id="helpButton" type="button">帮助</button>
+    <button id="exportButton" type="button">导出 PNG</button>
+  </header>
+
+  <main id="mainContainer" class="workspace">
+    <section id="leftPanel" class="panel source-panel" aria-label="PacketDiag 源码">
+      <div class="panel-header">
+        <span>PacketDiag 源码</span>
+      </div>
+      <div class="note-editor">
+        <label for="globalNote">全局注释</label>
+        <textarea id="globalNote" rows="3" spellcheck="false" placeholder="这里的文字会显示在导出图片左侧，不会写回源码"></textarea>
+      </div>
+      <textarea id="editor" spellcheck="false" autocomplete="off" autocapitalize="off"></textarea>
+    </section>
+
+    <div id="resizer" class="resizer" role="separator" aria-orientation="vertical" aria-label="调整编辑器和预览宽度"></div>
+
+    <section class="panel preview-panel" aria-label="渲染预览">
+      <div class="panel-header">
+        <span>渲染预览</span>
+        <span class="panel-hint">双击字段可直接修改文字</span>
+      </div>
+      <div id="previewWrap" class="preview-wrap">
+        <canvas id="diagramCanvas"></canvas>
+      </div>
+    </section>
+  </main>
+
+  <div id="helpModal" class="modal-backdrop" hidden>
+    <section class="help-dialog" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
+      <header class="help-header">
+        <h1 id="helpTitle">使用说明</h1>
+        <button id="helpCloseButton" class="icon-button" type="button" aria-label="关闭帮助">×</button>
+      </header>
+      <div class="help-content">
+        <h2>打开方式</h2>
+        <p>开发版打开根目录 <code>index.html</code>；离线单文件版运行 <code>npm run build</code> 后打开 <code>dist/index.html</code>，可在 <code>file://</code> 下直接使用。</p>
+
+        <h2>标准 PacketDiag 语法</h2>
+        <p>基于 <a href="http://blockdiag.com/en/nwdiag/packetdiag-examples.html" target="_blank" rel="noopener">blockdiag/packetdiag</a> 语法。源码包裹在 <code>packetdiag { }</code> 内，也支持 <code>@startpacketdiag</code> / <code>@endpacketdiag</code>。</p>
+
+        <h3>全局配置</h3>
+        <table>
+          <tr><th>参数</th><th>默认值</th><th>说明</th></tr>
+          <tr><td><code>colwidth</code></td><td>32</td><td>每行位宽，超出自动折行</td></tr>
+          <tr><td><code>node_height</code></td><td>72</td><td>字段单元格高度 (px)</td></tr>
+          <tr><td><code>default_fontsize</code></td><td>12</td><td>字段标签字号</td></tr>
+          <tr><td><code>scale_interval</code></td><td>8</td><td>标尺主刻度间隔</td></tr>
+        </table>
+
+        <h3>字段定义</h3>
+        <p>格式：<code>bit[-end]: 标签 [属性, …]</code></p>
+        <pre><code>0-3:   Version [color = "#dbeafe"];
+4-7:   IHL;
+8:     Single Bit;
+16-31: Total Len [textcolor = "red"];
+96-111: "0x8100";                // 特殊字符标签用引号</code></pre>
+
+        <h3>字段属性</h3>
+        <table>
+          <tr><th>属性</th><th>说明</th><th>示例</th></tr>
+          <tr><td><code>color</code></td><td>背景色</td><td><code>[color = "#fce5cd"]</code></td></tr>
+          <tr><td><code>textcolor</code></td><td>文字颜色</td><td><code>[textcolor = "red"]</code></td></tr>
+          <tr><td><code>rotate</code></td><td>文字旋转 90/270</td><td><code>[rotate = 270]</code></td></tr>
+          <tr><td><code>colheight</code></td><td>高度倍数 1–12</td><td><code>[colheight = 3]</code></td></tr>
+          <tr><td><code>label</code></td><td>显示别名</td><td><code>[label = "Src Port"]</code></td></tr>
+          <tr><td><code>number</code></td><td>是否显示位号徽章</td><td><code>[number = 0]</code></td></tr>
+          <tr><td><code>description</code></td><td>鼠标悬停提示</td><td><code>[description = "RFC 793"]</code></td></tr>
+          <tr><td><code>style</code></td><td>边框: solid/dashed/dotted/none</td><td><code>[style = "dashed"]</code></td></tr>
+          <tr><td><code>shape</code></td><td>形状: box/ellipse</td><td><code>[shape = "ellipse"]</code></td></tr>
+          <tr><td><code>len</code></td><td>变长字段，锯齿边缘</td><td><code>[len = 64]</code></td></tr>
+          <tr><td><code>icon</code></td><td>右上角图标徽章</td><td><code>[icon = "flag"]</code></td></tr>
+          <tr><td><code>background</code></td><td>背景色（优先 color）</td><td><code>[background = "#c7d2fe"]</code></td></tr>
+        </table>
+
+        <h3>注释与区段</h3>
+        <pre><code># 井号注释（标准 PacketDiag）
+// 双斜杠注释
+0-31: Field;  // 行尾注释
+
+// ---- 区段标题 ----
+// 变体 1: BFD上送        — 备选格式，渲染为独立行
+// @row: Word 1           — 显式行分隔 [本工具独有]
+// @left: 行注释          — 行左侧注释 [本工具独有]</code></pre>
+
+        <h3>desctable 描述表</h3>
+        <pre><code>packetdiag {
+  0-15: SrcPort [description = "源端口"];
+  desctable {
+    SrcPort = "发送方端口号（16 bits）"
+  }
+}</code></pre>
+
+        <h2>本工具扩展功能</h2>
+        <table>
+          <tr><th>功能</th><th>说明</th></tr>
+          <tr><td><code>numbering = "local"</code></td><td>每行从 0 开始编号，可重复使用 0-31</td></tr>
+          <tr><td><code>bit_order = "desc"</code></td><td>位序反转（31 在左，0 在右），匹配 IEEE 规范图</td></tr>
+          <tr><td><code>// @row</code> / <code>// @row: 标签</code></td><td>显式行分隔，可带行标签</td></tr>
+          <tr><td><code>// @left: 文字</code></td><td>下一行左侧显示注释</td></tr>
+          <tr><td>双击编辑</td><td>双击预览图字段直接编辑标签，自动同步回源码</td></tr>
+          <tr><td>PNG 导出</td><td>完全离线导出 PNG，无需 Kroki</td></tr>
+          <tr><td>全局注释框</td><td>编辑器上方的文本框，显示在导出图左侧，不写回源码</td></tr>
+        </table>
+        <p>工具栏「位序」「编号」下拉框可覆盖源码配置。</p>
+
+        <h2>排查</h2>
+        <ul>
+          <li>注释未显示：确认 <code>// @left:</code> 写在目标字段<strong>前面</strong></li>
+          <li>位序/编号不对：检查工具栏下拉框或源码 <code>bit_order</code> / <code>numbering</code> 配置</li>
+          <li>local 模式报错：所有字段位号需 <code>&lt; colwidth</code></li>
+          <li>中文乱码：确认文件 UTF-8 编码</li>
+          <li>页面空白：确认 <code>assets/</code> 目录完整，或使用 <code>dist/index.html</code></li>
+        </ul>
+      </div>
+    </section>
+  </div>
+
+  <footer class="statusbar">
+    <span id="statusInfo">就绪</span>
+    <span>完全离线: 不请求 Kroki、CDN 或远程字体</span>
+  </footer>
+  <script>
 "use strict";
+
+function clampNumber(value, min, max, fallback) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.max(min, Math.min(max, Math.round(number)));
+}
+
+function normalizedColwidth(value) {
+  return clampNumber(value, 1, 256, 32);
+}
+
+function normalizedColheight(value) {
+  return clampNumber(value, 1, 12, 1);
+}
+
 
 const DEFAULT_PACKET_SOURCE = `packetdiag {
   colwidth = 32;
@@ -189,31 +871,7 @@ const PRESETS = {
 }`
 };
 
-const dom = {
-  editor: document.getElementById("editor"),
-  canvas: document.getElementById("diagramCanvas"),
-  errorMessage: document.getElementById("errorMessage"),
-  statusInfo: document.getElementById("statusInfo"),
-  presetSelect: document.getElementById("presetSelect"),
-  previewWrap: document.getElementById("previewWrap"),
-  fitWidth: document.getElementById("fitWidth"),
-  bitOrderMode: document.getElementById("bitOrderMode"),
-  numberingMode: document.getElementById("numberingMode"),
-  globalNote: document.getElementById("globalNote"),
-  helpButton: document.getElementById("helpButton"),
-  helpModal: document.getElementById("helpModal"),
-  helpCloseButton: document.getElementById("helpCloseButton"),
-  exportButton: document.getElementById("exportButton"),
-  editorFontSize: document.getElementById("editorFontSize"),
-  leftPanel: document.getElementById("leftPanel"),
-  mainContainer: document.getElementById("mainContainer"),
-  resizer: document.getElementById("resizer")
-};
-
-let currentSource = "";
-let updateTimer = 0;
-let lastParsed = null;
-let activeCanvasEditor = null;
+"use strict";
 
 function parsePacketDiag(source, overrides) {
   const ov = overrides || {};
@@ -699,18 +1357,6 @@ function normalizeBitOrder(value, warnings = []) {
   return "asc";
 }
 
-function normalizedColwidth(value) {
-  return clampNumber(value, 1, 256, 32);
-}
-
-function clampNumber(value, min, max, fallback) {
-  const number = Number(value);
-  if (!Number.isFinite(number)) {
-    return fallback;
-  }
-  return Math.max(min, Math.min(max, Math.round(number)));
-}
-
 function buildSectionRows(section, config) {
   const colwidth = config.colwidth;
   const rowsByIndex = new Map();
@@ -989,10 +1635,6 @@ function fragmentX(gridX, fragment, colwidth, bitWidth, bitOrder) {
 
 function rowHeight(row, nodeHeight) {
   return Math.max(...row.fragments.map((fragment) => nodeHeight * normalizedColheight(fragment.field.options.colheight)), nodeHeight);
-}
-
-function normalizedColheight(value) {
-  return clampNumber(value, 1, 12, 1);
 }
 
 function drawEmptyState(ctx, width, height, top = 0) {
@@ -1571,6 +2213,32 @@ function defaultColorFor(label) {
   return palette[hash % palette.length];
 }
 
+const dom = {
+  editor: document.getElementById("editor"),
+  canvas: document.getElementById("diagramCanvas"),
+  errorMessage: document.getElementById("errorMessage"),
+  statusInfo: document.getElementById("statusInfo"),
+  presetSelect: document.getElementById("presetSelect"),
+  previewWrap: document.getElementById("previewWrap"),
+  fitWidth: document.getElementById("fitWidth"),
+  bitOrderMode: document.getElementById("bitOrderMode"),
+  numberingMode: document.getElementById("numberingMode"),
+  globalNote: document.getElementById("globalNote"),
+  helpButton: document.getElementById("helpButton"),
+  helpModal: document.getElementById("helpModal"),
+  helpCloseButton: document.getElementById("helpCloseButton"),
+  exportButton: document.getElementById("exportButton"),
+  editorFontSize: document.getElementById("editorFontSize"),
+  leftPanel: document.getElementById("leftPanel"),
+  mainContainer: document.getElementById("mainContainer"),
+  resizer: document.getElementById("resizer")
+};
+
+let currentSource = "";
+let updateTimer = 0;
+let lastParsed = null;
+let activeCanvasEditor = null;
+
 function update() {
   currentSource = dom.editor.value;
   try {
@@ -2017,3 +2685,6 @@ if (document.readyState === "loading") {
 } else {
   init();
 }
+  </script>
+</body>
+</html>

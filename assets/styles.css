@@ -68,7 +68,6 @@ textarea {
 .brand-title {
   font-size: 15px;
   font-weight: 700;
-  letter-spacing: 0;
   white-space: nowrap;
 }
 
@@ -79,10 +78,6 @@ textarea {
   color: var(--muted);
   font-size: 13px;
   white-space: nowrap;
-}
-
-.control.compact {
-  gap: 8px;
 }
 
 select,
@@ -187,7 +182,6 @@ input[type="range"] {
   color: var(--muted);
   font-size: 12px;
   font-weight: 700;
-  letter-spacing: 0;
 }
 
 .panel-hint {

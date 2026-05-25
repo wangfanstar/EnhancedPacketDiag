@@ -4,27 +4,35 @@ const fs = require("fs");
 const path = require("path");
 
 const root = path.join(__dirname, "..");
-const htmlPath = path.join(root, "index.html");
+const srcHtmlPath = path.join(root, "index.html");
 const cssPath = path.join(root, "assets", "styles.css");
-const jsPath = path.join(root, "assets", "app.js");
+const distDir = path.join(root, "dist");
+const distHtmlPath = path.join(distDir, "index.html");
+
+const jsFiles = [
+  "assets/js/utils.js",
+  "assets/js/presets.js",
+  "assets/js/parse.js",
+  "assets/js/render.js",
+  "assets/js/ui.js"
+];
 
 const css = fs.readFileSync(cssPath, "utf8");
-const js = fs.readFileSync(jsPath, "utf8");
-let html = fs.readFileSync(htmlPath, "utf8");
+const js = jsFiles
+  .map((file) => fs.readFileSync(path.join(root, file), "utf8"))
+  .join("\n\n");
 
-const styleTag = `  <style>\n${css}\n  </style>`;
-const scriptTag = `  <script>\n${js}\n  </script>`;
+let html = fs.readFileSync(srcHtmlPath, "utf8");
 
-if (html.includes('href="assets/styles.css"')) {
-  html = html.replace('  <link rel="stylesheet" href="assets/styles.css">', styleTag);
-} else {
-  html = html.replace(/  <style>[\s\S]*?<\/style>/, styleTag);
-}
+html = html.replace(/  <link rel="stylesheet" href="assets\/styles.css">\n/, "");
+html = html.replace(/  <script defer src="assets\/js\/[^"]+"><\/script>\n/g, "");
 
-html = html.replace(/\n  <script defer src="assets\/app.js"><\/script>/, "");
-html = html.replace(/\n  <script>\n[\s\S]*?\n  <\/script>\n(?=<\/head>)/, "");
-html = html.replace(/\n  <script>\n[\s\S]*?\n  <\/script>\n(?=<\/body>)/, "");
-html = html.replace("</body>", `\n${scriptTag}\n</body>`);
+const styleTag = `  <style>\n${css}\n  </style>\n`;
+const scriptTag = `  <script>\n${js}\n  </script>\n`;
 
-fs.writeFileSync(htmlPath, html, "utf8");
-console.log(`Bundled ${htmlPath}`);
+html = html.replace("</head>", `${styleTag}</head>`);
+html = html.replace("</body>", `${scriptTag}</body>`);
+
+fs.mkdirSync(distDir, { recursive: true });
+fs.writeFileSync(distHtmlPath, html, "utf8");
+console.log(`Built ${distHtmlPath} (${html.split("\n").length} lines)`);

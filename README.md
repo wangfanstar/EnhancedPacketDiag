@@ -4,7 +4,27 @@
 
 ## 打开方式
 
-直接用浏览器打开 `index.html`。不需要本地服务、Node、Python、Kroki、CDN 或互联网连接。
+- **开发版**：打开根目录 `index.html`（加载 `assets/js/` 模块与 `assets/styles.css`），或运行 `npx serve .`
+- **离线单文件版**：运行 `npm run build` 后打开 `dist/index.html`，可在 `file://` 下直接使用
+
+## 项目结构
+
+```
+index.html              # 页面结构（开发入口）
+assets/
+  styles.css            # 样式
+  js/
+    presets.js          # 内置示例数据
+    parse.js            # PacketDiag 解析
+    render.js           # Canvas 渲染
+    ui.js               # 交互与初始化
+dist/
+  index.html            # 构建产物（CSS/JS 内联，npm run build 生成）
+scripts/
+  bundle.js             # 打包脚本
+```
+
+修改源码后运行 `npm run build` 更新 `dist/index.html`。
 
 ## 基础用法
 
