@@ -29,124 +29,143 @@
 
 这个功能只修改字段 label，不会改变 bit 范围、颜色、旋转、`colheight` 等属性。
 
-## 支持的 PacketDiag 语法
+## 标准 PacketDiag 语法参考
+
+本工具基于 [blockdiag/packetdiag](http://blockdiag.com/en/nwdiag/packetdiag-examples.html) 标准语法。以下列出完整的标准语法及本工具的扩展。
+
+### 基本结构
 
 ```packetdiag
 packetdiag {
-  colwidth = 32;
-  node_height = 40;
-  default_fontsize = 12;
-  bit_order = "desc";
-  numbering = "global";
-
-  // ---- Section Title ----
-  // @left: 这段文字会显示在下一条字段所在行的左侧
-  0-15: Source Port [color = "#dbeafe"];
-  16-31: Destination Port [textcolor = "red"];
-  32-63: Sequence Number;
+  全局配置 ...
+  位范围定义 ...
 }
 ```
 
-已支持：
+### 全局配置参数
 
-- `colwidth`、`node_height`、`default_fontsize`
-- `bit_order = "asc"` 或 `bit_order = "desc"`
-- `numbering = "global"` 或 `numbering = "local"`
-- 单 bit：`154: NS_E;`
-- bit 范围：`0-31: HOST_MAC;`
-- quoted label：`96-111: "0x8100";`
-- 字段属性：`color`、`textcolor`、`rotate = 270`、`colheight`
-- 区段标题注释：`// ---- 标题 ----`
-- 左侧行注释：`// @left: 注释文字`
-- 显式行分隔：`// @row` / `// @row: 行标签`
-- 兼容原有变体行标签：`// 变体 1: ...`
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `colwidth` | 整数 | 32 | 每行显示的位宽。字段位号超出 colwidth 时自动折行 |
+| `node_height` | 整数 (px) | 72 | 字段单元格高度 |
+| `default_fontsize` | 整数 | 12 | 标签字体大小 |
 
-## 反向位序
+### 位范围定义
 
-有两种方式可以显示为 `31 -> 0`：
-
-1. 源码配置：
+格式：`bit[-end]: 标签 [属性, …]`
 
 ```packetdiag
-bit_order = "desc";
+0-3:   Version;                        // 多位字段
+4-7:   IHL         [color = "#dbeafe"];  // 带颜色
+8:     Single Bit;                        // 单个比特
+16-31: Total Len   [textcolor = "red"];   // 文字颜色
+96-111: "0x8100";                         // 特殊字符标签需引号
 ```
 
-2. 工具栏 `位序` 下拉框选择 `31 -> 0`。
+### 标准字段属性
 
-优先级：工具栏显式选择 `0 -> 31` 或 `31 -> 0` 会覆盖源码；选择 `跟随源码` 时使用 `bit_order`，源码未配置时默认 `0 -> 31`。
+| 属性 | 类型 | 说明 | 示例 |
+|------|------|------|------|
+| `color` | 颜色值 | 单元格背景色，`#rrggbb` 或 CSS 颜色名 | `[color = "#fce5cd"]` |
+| `textcolor` | 颜色值 | 标签文字颜色 | `[textcolor = "red"]` |
+| `rotate` | 90 / 270 | 文字旋转角度 | `[rotate = 270]` |
+| `colheight` | 整数 | 单元格高度倍数（1-12） | `[colheight = 3]` |
 
-反向位序只改变每个 `colwidth` 行内的显示方向，不改变源码中的 bit 编号和字段含义。
-
-## 连续编号 vs 每行独立编号
-
-### 连续编号 (global, 默认)
-
-位号全局唯一，字段按绝对位号跨行布局：
+### 注释与区段
 
 ```packetdiag
-packetdiag {
-  colwidth = 32;
-  numbering = "global";
+// 注释行
+0-31: Field;  // 行尾注释
 
-  0-15: Source Port;
-  16-31: Dest Port;
-  // 下一个字段从 32 开始，自动进入下一行
-  32-63: Sequence Number;
-}
+// ---- 区段标题 ----
+0-3: Version;
 ```
 
-### 每行独立编号 (local)
-
-每行独立从 0 开始编号，配合 `// @row` 显式分行：
+### 变体 / 备选格式
 
 ```packetdiag
-packetdiag {
-  colwidth = 32;
-  numbering = "local";
+// 变体 1: BFD上送
+256-287: BFD_DISCR [color = "#fce5cd"];
 
-  0-15: Source Port;
-  16-31: Dest Port;
-
-  // @row: Word 1
-  0-31: Sequence Number;
-
-  // @row: Word 2
-  0-31: Ack Number;
-}
+// 变体 2: MOD上送
+288-311: MOD_FIELD [color = "#fce5cd"];
 ```
 
-工具栏「编号」下拉框可覆盖源码配置。在 local 模式下字段位号必须 < colwidth。
+## 本工具扩展（非标准语法）
 
-### @row 行分隔
+以下功能为**本工具独有**，标准 PacketDiag / blockdiag / Kroki / PlantUML 中不可用：
 
-- `// @row` — 开始新视觉行，无标签
-- `// @row: Word 1` — 开始新视觉行，行标签 "Word 1"
-- 第一行不需要写 @row
-- @row 在 global 模式下也会阻止自动行合并
+### numbering — 编号模式
 
-## 左侧注释
-
-左侧注释有两种来源：
-
-- `全局注释` 输入框：显示在导出图片左侧顶部，不写回源码。
-- 源码注释：使用 `// @left: 注释文字`，作用于下一条字段所在行。
-
-示例：
+| 取值 | 行为 |
+|------|------|
+| `"global"`（默认） | 标准模式：位号全局唯一 |
+| `"local"` | 每行独立：每行从 0 开始，多行可重复 `0-31` |
 
 ```packetdiag
-// @left: Word 0，基础 MAC 字段
-0-31: HOST_MAC;
-
-// @left: Word 1，HOST_MAC 低 16 bit + NP_MAC 高 16 bit
-32-47: HOST_MAC;
-48-63: NP_MAC;
+numbering = "local";
 ```
 
-PNG 导出会包含当前全局注释、行注释和位序效果。
+### // @row — 显式行分隔
+
+```packetdiag
+// @row                  — 开始新行，无标签
+// @row: Word 1          — 开始新行，标签 "Word 1"
+```
+
+### // @left: — 行注释
+
+```packetdiag
+// @left: 这段注释显示在下一行左侧
+0-15: Source Port;
+```
+
+### bit_order — 位序反转
+
+```packetdiag
+bit_order = "asc";    // 默认：0 在左，31 在右
+bit_order = "desc";   // 反转：31 在左，0 在右
+```
+
+### 双击编辑
+
+双击预览图中任意字段可编辑标签文字，自动同步回源码。
+
+### 全局注释
+
+源码编辑器上方的文本区域，内容显示在图片左侧顶部。
+
+## 与标准 PacketDiag 差异对照
+
+| 特性 | 标准 | 本工具 |
+|------|:--:|:--:|
+| 字段定义 `bit: label` / `bit-end: label` | ✅ | ✅ |
+| `color` / `textcolor` / `rotate` / `colheight` | ✅ | ✅ |
+| `colwidth` / `node_height` / `default_fontsize` | ✅ | ✅ |
+| `//` 注释 / `// ----` 区段 / 变体标记 | ✅ | ✅ |
+| 多行字段（跨 colwidth 折行） | ✅ 含虚线 | ✅ 不含虚线 |
+| `#` 注释 | ✅ | 🔴 |
+| `@startpacketdiag` / `@endpacketdiag` | ✅ PlantUML | 🔴 |
+| `scale_direction` / `scale_interval` | ✅ | 🔴 |
+| `label` 字段属性 (别名) | ✅ | 🔴（双击代替） |
+| `number` 徽章 / `description` 提示 | ✅ | 🔴 |
+| `style` 边框 / `shape` 形状 | ✅ | 🔴 |
+| `icon` / `background` / `stacked` | ✅ | 🔴 |
+| `len` 变长字段 / Sparse packet | ✅ | 🔴 |
+| `desctable` 描述表 | ✅ Sphinx | 🔴 |
+| `numbering = "local"` | 🔴 | 🟢 独有 |
+| `// @row` 行分隔 | 🔴 | 🟢 独有 |
+| `// @left:` 行注释 | 🔴 | 🟢 独有 |
+| `bit_order = "desc"` | 🔴 | 🟢 独有 |
+| 工具栏位序/编号覆盖 | 🔴 | 🟢 独有 |
+| 双击图片编辑字段 | 🔴 | 🟢 独有 |
+| 全局注释输入框 | 🔴 | 🟢 独有 |
+| 完全离线运行 | 🔴 需 Kroki/Python | 🟢 离线 |
 
 ## 常见问题
 
-- 页面空白：确认打开的是 `index.html`，并且 `assets/app.js` 和 `assets/styles.css` 在 `assets/` 子目录下。
-- 中文乱码：请确认文件以 UTF-8 保存。
-- 位序没有反向：检查工具栏 `位序` 是否选择了 `跟随源码`，以及源码中是否配置了 `bit_order = "desc"`。
-- 注释没有显示：`// @left:` 需要写在目标字段前面，作用于下一条字段所在行。
+- 页面空白：确认 `index.html` 和 `assets/` 目录在同一位置
+- 中文乱码：确认文件以 UTF-8 保存
+- 位序没有反向：检查工具栏「位序」或源码 `bit_order`
+- 注释没有显示：`// @left:` 需写在目标字段**前面**
+- local 模式报错：字段位号必须 `< colwidth`

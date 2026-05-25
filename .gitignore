@@ -9,5 +9,8 @@ desktop.ini
 *.swp
 *.swo
 
-# Claude
+# Claude settings
 .claude/
+
+# Temp / scratch files
+cli_macw.c

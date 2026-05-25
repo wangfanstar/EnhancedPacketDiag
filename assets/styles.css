@@ -320,7 +320,7 @@ input[type="range"] {
 
 .help-dialog {
   display: flex;
-  width: min(880px, 100%);
+  width: min(960px, 100%);
   max-height: min(760px, calc(100vh - 48px));
   flex-direction: column;
   overflow: hidden;
@@ -379,6 +379,35 @@ input[type="range"] {
 
 .help-content ul {
   padding-left: 20px;
+}
+
+/* Help dialog tables */
+.help-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 8px 0 16px;
+  font-size: 13px;
+}
+
+.help-content th {
+  text-align: left;
+  padding: 6px 10px;
+  background: #e6ede8;
+  border: 1px solid #d4dcd6;
+  font-weight: 700;
+  color: #18201b;
+}
+
+.help-content td {
+  padding: 5px 10px;
+  border: 1px solid #dce4df;
+  vertical-align: top;
+  color: #2d3831;
+}
+
+.help-content td code {
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .help-content code {
