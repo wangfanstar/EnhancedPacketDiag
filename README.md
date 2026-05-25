@@ -35,11 +35,24 @@
 
 ### 基本结构
 
+支持两种块格式：
+
 ```packetdiag
 packetdiag {
   全局配置 ...
   位范围定义 ...
 }
+```
+
+或 PlantUML 格式：
+
+```packetdiag
+@startpacketdiag
+packetdiag {
+  全局配置 ...
+  位范围定义 ...
+}
+@endpacketdiag
 ```
 
 ### 全局配置参数
@@ -49,6 +62,8 @@ packetdiag {
 | `colwidth` | 整数 | 32 | 每行显示的位宽。字段位号超出 colwidth 时自动折行 |
 | `node_height` | 整数 (px) | 72 | 字段单元格高度 |
 | `default_fontsize` | 整数 | 12 | 标签字体大小 |
+| `scale_direction` | 字符串 | `left_to_right` | 标尺方向：`left_to_right`（0在左）或 `right_to_left`（最大值在左） |
+| `scale_interval` | 整数 | 8 | 标尺主刻度间隔（默认每 8 bit 一个主刻度） |
 
 ### 位范围定义
 
@@ -70,11 +85,23 @@ packetdiag {
 | `textcolor` | 颜色值 | 标签文字颜色 | `[textcolor = "red"]` |
 | `rotate` | 90 / 270 | 文字旋转角度 | `[rotate = 270]` |
 | `colheight` | 整数 | 单元格高度倍数（1-12） | `[colheight = 3]` |
+| `label` | 字符串 | 字段显示别名（可替代标签文本） | `[label = "Source Port"]` |
+| `number` | 布尔 | 是否显示位号徽章（默认显示） | `[number = 0]` |
+| `description` | 字符串 | 鼠标悬停提示文本 | `[description = "RFC 793"]` |
+| `style` | 字符串 | 边框样式：`solid`（默认）、`dashed`、`dotted`、`none` | `[style = "dashed"]` |
+| `shape` | 字符串 | 单元格形状：`box`（默认）、`ellipse` | `[shape = "ellipse"]` |
+| `len` | 整数 | 变长字段标记，右侧锯齿边缘 | `[len = 64]` |
+| `icon` | 字符串 | 单元格右上角图标徽章 | `[icon = "flag"]` |
+| `background` | 颜色值 | 单元格背景色（比 `color` 优先级更高） | `[background = "#c7d2fe"]` |
 
 ### 注释与区段
 
+支持 `#` 和 `//` 两种注释风格：
+
 ```packetdiag
-// 注释行
+# 井号注释行（标准 PacketDiag）
+// 双斜杠注释行
+0-31: Field;  # 行尾注释
 0-31: Field;  // 行尾注释
 
 // ---- 区段标题 ----
@@ -90,6 +117,41 @@ packetdiag {
 // 变体 2: MOD上送
 288-311: MOD_FIELD [color = "#fce5cd"];
 ```
+
+### 变长字段 `len`
+
+```packetdiag
+0-31: Data [len = 64];
+```
+
+`len = N` 标记该字段为变长字段，渲染时右侧边缘显示锯齿状标记，角落标注 `len=N`。
+
+### 稀疏报文 (Sparse Packet)
+
+字段无需覆盖全部位号，未覆盖的位域会自动显示为浅色空白区（虚线点标注）。这与标准 PacketDiag 的行为一致。
+
+```packetdiag
+0-15: Header;     # 覆盖 0-15
+32-47: Payload;   # 16-31 自动显示为空白区
+```
+
+### 描述表 `desctable`
+
+在 `packetdiag { }` 块内使用 `desctable { }` 块为字段添加描述，渲染时在图表下方生成描述表：
+
+```packetdiag
+packetdiag {
+  0-15: SrcPort [description = "TCP source port"];
+  16-31: DstPort [description = "TCP dest port"];
+
+  desctable {
+    SrcPort = "发送方端口号（16 bits）"
+    DstPort = "接收方端口号（16 bits）"
+  }
+}
+```
+
+字段的 `[description = "..."]` 属性也会被自动收录到描述表中。
 
 ## 本工具扩展（非标准语法）
 
@@ -141,18 +203,22 @@ bit_order = "desc";   // 反转：31 在左，0 在右
 |------|:--:|:--:|
 | 字段定义 `bit: label` / `bit-end: label` | ✅ | ✅ |
 | `color` / `textcolor` / `rotate` / `colheight` | ✅ | ✅ |
+| `label` 字段属性（显示别名） | ✅ | ✅ |
+| `number` 位号徽章 / `description` 提示 | ✅ | ✅ 提示为 tooltip |
+| `style` 边框样式（none/solid/dashed/dotted） | ✅ | ✅ |
+| `shape` 形状（box/ellipse） | ✅ | ✅ |
 | `colwidth` / `node_height` / `default_fontsize` | ✅ | ✅ |
-| `//` 注释 / `// ----` 区段 / 变体标记 | ✅ | ✅ |
+| `scale_direction` / `scale_interval` | ✅ | ✅ |
+| `#` 注释 / `//` 注释 | ✅ | ✅ 两种均可 |
+| `// ----` 区段 / 变体标记 | ✅ | ✅ |
+| `@startpacketdiag` / `@endpacketdiag` | ✅ PlantUML | ✅ |
 | 多行字段（跨 colwidth 折行） | ✅ 含虚线 | ✅ 不含虚线 |
-| `#` 注释 | ✅ | 🔴 |
-| `@startpacketdiag` / `@endpacketdiag` | ✅ PlantUML | 🔴 |
-| `scale_direction` / `scale_interval` | ✅ | 🔴 |
-| `label` 字段属性 (别名) | ✅ | 🔴（双击代替） |
-| `number` 徽章 / `description` 提示 | ✅ | 🔴 |
-| `style` 边框 / `shape` 形状 | ✅ | 🔴 |
-| `icon` / `background` / `stacked` | ✅ | 🔴 |
-| `len` 变长字段 / Sparse packet | ✅ | 🔴 |
-| `desctable` 描述表 | ✅ Sphinx | 🔴 |
+| `icon` 徽章标记 / `background` 背景色 | ✅ | ✅ |
+| `len` 变长字段标记 | ✅ | ✅ 锯齿边缘 + len=N 标注 |
+| Sparse packet（稀疏报文，字段不连续覆盖） | ✅ | ✅ 空白位域虚线标注 |
+| `desctable` 描述表 | ✅ Sphinx | ✅ 图表下方渲染表格 |
+| 多行字段（跨 colwidth 折行） | ✅ 含虚线 | ✅ 不含虚线 |
+| `stacked` 堆叠模式 | ✅ | 🔴 |
 | `numbering = "local"` | 🔴 | 🟢 独有 |
 | `// @row` 行分隔 | 🔴 | 🟢 独有 |
 | `// @left:` 行注释 | 🔴 | 🟢 独有 |

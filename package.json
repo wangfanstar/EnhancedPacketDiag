@@ -1,0 +1,7 @@
+{
+  "name": "packetdiag-offline-viewer",
+  "private": true,
+  "scripts": {
+    "build": "node scripts/bundle.js"
+  }
+}

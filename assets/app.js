@@ -131,6 +131,61 @@ const PRESETS = {
   112-127: EtherType [color = "#dcfce7"];
   128-159: Payload [color = "#fef3c7"];
   160-191: FCS [color = "#fee2e2"];
+}`,
+  standard: `packetdiag {
+  colwidth = 32;
+  node_height = 58;
+  default_fontsize = 12;
+
+  # === Demo: Full Standard PacketDiag Compatibility ===
+  # This example exercises ALL standard syntax features
+
+  # ---- Standard Field Attributes ----
+
+  # 1. label attribute — display alias
+  0-7: type [label = "Type", color = "#dbeafe"];
+
+  # 2. number attribute — hide bit badge
+  8-15: code [label = "Code", color = "#dcfce7", number = 0];
+
+  # 3. style & shape — border and cell shape
+  16-19: chksum [label = "Checksum", color = "#fef3c7", style = "dashed"];
+  20-23: rsvd [label = "Reserved", color = "#ede9fe", style = "dotted"];
+
+  # 4. description — hover tooltip
+  24-31: ident [label = "Identifier", color = "#fee2e2", description = "Unique flow identifier assigned by the source"];
+
+  # 5. shape = ellipse
+  32-47: payload [label = "Payload", color = "#ccfbf1", shape = "ellipse"];
+
+  # 6. len — variable-length field (jagged right edge)
+  48-63: data [label = "Var Data", color = "#ffedd5", len = 64];
+
+  # 7. background — override cell background
+  64-79: flags [background = "#c7d2fe", label = "Flags", description = "Control flags bitmap"];
+
+  # 8. icon & rotate
+  80: F [label = "F", rotate = 270, icon = "flag"];
+  81: S [label = "S", rotate = 270, icon = "sync"];
+  82: R [label = "R", rotate = 270];
+  83-95: unused [label = "Unused", style = "none", color = "#e5e7eb"];
+
+  # 9. Sparse packet — gaps show dotted empty areas
+  100-107: gap_fill [label = "After Gap", color = "#dbeafe"];
+
+  # 10. scale config
+  scale_direction = "left_to_right";
+  scale_interval = 8;
+
+  # ---- Description Table ----
+  desctable {
+    type = "Packet type identifier"
+    code = "Operation code (request/response)"
+    ident = "Flow identifier"
+    payload = "Data payload (variable length)"
+    data = "Variable-length data field"
+    flags = "Control flags bitmap"
+  }
 }`
 };
 
@@ -172,12 +227,16 @@ function parsePacketDiag(source, overrides) {
     numbering: "global"
   };
   const sections = [];
+  const descTableEntries = [];
   const warnings = [];
   let currentSection = createSection("");
   let pendingRowLabel = "";
   let pendingRowNote = "";
   let hasBody = false;
   let localRowIndex = 0;
+  let inDescTable = false;
+  let explicitRowMode = false;
+  let currentExplicitRow = null;
 
   function finishSection() {
     if (currentSection.fields.length > 0 || currentSection.name) {
@@ -185,6 +244,8 @@ function parsePacketDiag(source, overrides) {
     }
     currentSection = createSection("");
     localRowIndex = 0;
+    explicitRowMode = false;
+    currentExplicitRow = null;
   }
 
   for (let index = 0; index < lines.length; index += 1) {
@@ -193,12 +254,44 @@ function parsePacketDiag(source, overrides) {
     let line = stripLineComment(originalLine).trim();
     let inlineLeftNote = "";
 
-    if (line === "packetdiag {" || line === "packetdiag{") {
+    if (line === "packetdiag {" || line === "packetdiag{" || /^@startpacketdiag\b/i.test(line)) {
       hasBody = true;
       continue;
     }
 
-    if (line === "}") {
+    if (line === "}" || /^@endpacketdiag\b/i.test(originalLine.trim())) {
+      if (inDescTable) {
+        inDescTable = false;
+      }
+      continue;
+    }
+
+    // desctable block
+    if (/^desctable\b/i.test(line)) {
+      inDescTable = true;
+      hasBody = true;
+      line = line.replace(/^desctable\s*\{?\s*/i, "").replace(/}\s*$/, "").trim();
+      if (line === "") {
+        continue;
+      }
+    }
+
+    if (inDescTable) {
+      let closingDescTable = false;
+      if (line.endsWith("}")) {
+        line = line.slice(0, -1).trim();
+        closingDescTable = true;
+      }
+      const dtMatch = line.match(/^([A-Za-z_]\w*)\s*=\s*(.+)$/);
+      if (dtMatch) {
+        descTableEntries.push({
+          label: dtMatch[1],
+          description: parseValue(dtMatch[2].replace(/;\s*$/, ""))
+        });
+      }
+      if (closingDescTable) {
+        inDescTable = false;
+      }
       continue;
     }
 
@@ -209,6 +302,8 @@ function parsePacketDiag(source, overrides) {
 
       if (atRowLabel !== null) {
         localRowIndex += 1;
+        explicitRowMode = true;
+        currentExplicitRow = localRowIndex;
         pendingRowLabel = atRowLabel || "";
       } else if (leftNote && line === "") {
         pendingRowNote = appendNote(pendingRowNote, leftNote);
@@ -238,21 +333,28 @@ function parsePacketDiag(source, overrides) {
     if (field) {
       const numbering = config.numbering === "local" ? "local" : "global";
       const colW = normalizedColwidth(config.colwidth);
-      const rowIndex = numbering === "local" ? localRowIndex : Math.floor(field.start / colW);
+      let rowIndex;
+      if (numbering === "local") {
+        rowIndex = localRowIndex;
+      } else if (explicitRowMode && currentExplicitRow !== null) {
+        rowIndex = currentExplicitRow;
+        field.explicitRow = true;
+      } else {
+        rowIndex = Math.floor(field.start / colW);
+        field.explicitRow = false;
+      }
       field.visualRowIndex = rowIndex;
 
       if (pendingRowLabel && !currentSection.rowLabels.has(rowIndex)) {
         currentSection.rowLabels.set(rowIndex, pendingRowLabel);
       }
-      if (pendingRowNote) {
-        currentSection.rowNotes.set(rowIndex, appendNote(currentSection.rowNotes.get(rowIndex) || "", pendingRowNote));
+      const rowNote = appendNote(pendingRowNote, inlineLeftNote);
+      if (rowNote) {
+        currentSection.rowNotes.set(rowIndex, appendNote(currentSection.rowNotes.get(rowIndex) || "", rowNote));
       }
       pendingRowLabel = "";
       pendingRowNote = "";
       currentSection.fields.push(field);
-      if (inlineLeftNote) {
-        pendingRowNote = appendNote(pendingRowNote, inlineLeftNote);
-      }
       hasBody = true;
       continue;
     }
@@ -263,8 +365,8 @@ function parsePacketDiag(source, overrides) {
   finishSection();
 
   const nonEmptySections = sections.filter((section) => section.fields.length > 0);
-  if (!hasBody || nonEmptySections.length === 0) {
-    return { config: sanitizeConfig(config, warnings), sections: [], fields: [], warnings };
+  if (!hasBody && descTableEntries.length === 0) {
+    return { config: sanitizeConfig(config, warnings), sections: [], fields: [], descTable: [], warnings };
   }
 
   const safeConfig = sanitizeConfig(config, warnings);
@@ -274,8 +376,87 @@ function parsePacketDiag(source, overrides) {
     config: safeConfig,
     sections: nonEmptySections.map((section) => buildSectionRows(section, safeConfig)),
     fields: nonEmptySections.flatMap((section) => section.fields),
+    descTable: buildDescTable(sections, descTableEntries),
     warnings
   };
+}
+
+function fieldBitRange(field) {
+  return `${field.start}${field.start === field.end ? "" : `-${field.end}`}`;
+}
+
+function findFieldForDescKey(fields, key) {
+  const keyLower = String(key).toLowerCase();
+  return fields.find((field) => {
+    const displayLabel = field.options.label || field.label;
+    return field.label.toLowerCase() === keyLower || String(displayLabel).toLowerCase() === keyLower;
+  });
+}
+
+function fieldRowNumber(field) {
+  if (field && Number.isInteger(field.visualRowIndex)) {
+    return field.visualRowIndex + 1;
+  }
+  return null;
+}
+
+function enrichDescEntry(entry, field) {
+  if (!field) {
+    return entry;
+  }
+  const enriched = { ...entry };
+  if (!enriched.bitRange) {
+    enriched.bitRange = fieldBitRange(field);
+  }
+  if (enriched.rowNumber === undefined || enriched.rowNumber === null) {
+    enriched.rowNumber = fieldRowNumber(field);
+  }
+  return enriched;
+}
+
+function buildDescTable(sections, explicitEntries) {
+  const allFields = sections.flatMap((section) => section.fields);
+  const entries = explicitEntries.map((entry) => {
+    const field = findFieldForDescKey(allFields, entry.label);
+    return enrichDescEntry(entry, field);
+  });
+  const seenLabels = new Set(entries.map((e) => e.label.toLowerCase()));
+
+  for (const section of sections) {
+    for (const field of section.fields) {
+      const displayLabel = field.options.label || field.label;
+      const desc = field.options.description;
+      const bitRange = fieldBitRange(field);
+      const rowNumber = fieldRowNumber(field);
+      const keys = new Set([field.label.toLowerCase(), String(displayLabel).toLowerCase()]);
+
+      const existing = entries.find((e) => keys.has(e.label.toLowerCase()));
+      if (existing) {
+        if (!existing.bitRange) {
+          existing.bitRange = bitRange;
+        }
+        if (existing.rowNumber === undefined || existing.rowNumber === null) {
+          existing.rowNumber = rowNumber;
+        }
+        if (desc && !existing.description) {
+          existing.description = String(desc);
+        }
+        continue;
+      }
+
+      if (desc && !seenLabels.has(String(displayLabel).toLowerCase())) {
+        entries.push({
+          label: displayLabel,
+          description: String(desc),
+          bitRange,
+          rowNumber
+        });
+        seenLabels.add(String(displayLabel).toLowerCase());
+      }
+    }
+  }
+
+  return entries;
 }
 
 function createSection(name) {
@@ -289,12 +470,16 @@ function createSection(name) {
 
 function extractPacketSource(source) {
   const fence = source.match(/```(?:packetdiag)?\s*([\s\S]*?)```/i);
-  return fence ? fence[1].trim() : source.trim();
+  let text = fence ? fence[1].trim() : source.trim();
+  text = text.replace(/^@startpacketdiag[^\n]*\n?/im, "").replace(/^@endpacketdiag[^\n]*/im, "").trim();
+  return text;
 }
 
 function readLineComment(line) {
   const index = findCommentIndex(line);
-  return index >= 0 ? line.slice(index + 2).trim() : "";
+  if (index < 0) return "";
+  const skip = line[index] === "#" ? 1 : 2;
+  return line.slice(index + skip).trim();
 }
 
 function stripLineComment(line) {
@@ -304,7 +489,9 @@ function stripLineComment(line) {
 
 function findCommentIndex(line) {
   let quote = "";
-  for (let i = 0; i < line.length - 1; i += 1) {
+  let slashIndex = -1;
+  let hashIndex = -1;
+  for (let i = 0; i < line.length; i += 1) {
     const char = line[i];
     if (quote) {
       if (char === "\\" && i + 1 < line.length) {
@@ -318,11 +505,15 @@ function findCommentIndex(line) {
       quote = char;
       continue;
     }
-    if (char === "/" && line[i + 1] === "/") {
-      return i;
+    if (char === "/" && i + 1 < line.length && line[i + 1] === "/" && slashIndex < 0) {
+      slashIndex = i;
+    }
+    if (char === "#" && hashIndex < 0) {
+      hashIndex = i;
     }
   }
-  return -1;
+  if (slashIndex >= 0 && hashIndex >= 0) return Math.min(slashIndex, hashIndex);
+  return slashIndex >= 0 ? slashIndex : hashIndex;
 }
 
 function parseSectionComment(comment) {
@@ -461,12 +652,26 @@ function unwrapQuotes(value) {
 }
 
 function sanitizeConfig(config, warnings = []) {
+  let bitOrder = normalizeBitOrder(config.bit_order, warnings);
+
+  if (config.scale_direction !== undefined) {
+    const sd = String(config.scale_direction).trim().toLowerCase();
+    if (sd === "right_to_left") {
+      bitOrder = "desc";
+    } else if (sd === "left_to_right") {
+      bitOrder = "asc";
+    } else {
+      warnings.push(`scale_direction = "${config.scale_direction}" 无效，已忽略`);
+    }
+  }
+
   return {
     colwidth: normalizedColwidth(config.colwidth),
     node_height: clampNumber(config.node_height, 28, 180, 72),
     default_fontsize: clampNumber(config.default_fontsize, 8, 28, 12),
-    bit_order: normalizeBitOrder(config.bit_order, warnings),
-    numbering: normalizeNumbering(config.numbering, warnings)
+    bit_order: bitOrder,
+    numbering: normalizeNumbering(config.numbering, warnings),
+    scale_interval: Math.max(1, Math.min(64, parseInt(config.scale_interval, 10) || 8))
   };
 }
 
@@ -544,6 +749,29 @@ function buildSectionRows(section, config) {
         });
       }
       rowsByIndex.get(rowIndex).fragments.push(fragment);
+    } else if (field.explicitRow) {
+      const rowIdx = field.visualRowIndex;
+      const rowStartBit = Math.floor(field.start / colwidth) * colwidth;
+      const fragment = {
+        field,
+        rowIndex: rowIdx,
+        start: field.start,
+        end: field.end,
+        colStart: field.start - rowStartBit,
+        colEnd: field.end - rowStartBit,
+        drawLabel: false
+      };
+      fragments = [fragment];
+
+      if (!rowsByIndex.has(rowIdx)) {
+        rowsByIndex.set(rowIdx, {
+          index: rowIdx,
+          label: section.rowLabels.get(rowIdx) || "",
+          note: section.rowNotes.get(rowIdx) || "",
+          fragments: []
+        });
+      }
+      rowsByIndex.get(rowIdx).fragments.push(fragment);
     } else {
       const firstRow = Math.floor(field.start / colwidth);
       const lastRow = Math.floor(field.end / colwidth);
@@ -645,6 +873,7 @@ function renderDiagram(parsed, canvas, options = {}) {
     })
   }));
 
+  const descTableBlockHeight = measureDescTableHeight(parsed.descTable);
   let canvasHeight = topPad + bottomPad + globalNoteHeight + (globalNoteHeight > 0 ? 18 : 0);
   for (const layout of sectionLayouts) {
     if (layout.section.name) {
@@ -655,6 +884,9 @@ function renderDiagram(parsed, canvas, options = {}) {
       canvasHeight += rowCaptionHeight + rowLayout.height + rowGap;
     }
     canvasHeight += sectionGap;
+  }
+  if (descTableBlockHeight > 0) {
+    canvasHeight += descTableBlockHeight;
   }
   canvasHeight = Math.max(260, Math.ceil(canvasHeight));
 
@@ -676,8 +908,14 @@ function renderDiagram(parsed, canvas, options = {}) {
     y += globalNoteHeight + 18;
   }
 
-  if (parsed.sections.length === 0) {
+  if (parsed.sections.length === 0 && (!parsed.descTable || parsed.descTable.length === 0)) {
     drawEmptyState(ctx, canvasWidth, canvasHeight, y);
+    canvas._hitBoxes = [];
+    return { width: canvasWidth, height: canvasHeight, hitBoxes };
+  }
+
+  if (parsed.sections.length === 0 && parsed.descTable && parsed.descTable.length > 0) {
+    y = drawDescTable(ctx, parsed.descTable, leftPad, y + 16, canvasWidth - leftPad - rightPad, fontSize);
     canvas._hitBoxes = [];
     return { width: canvasWidth, height: canvasHeight, hitBoxes };
   }
@@ -693,19 +931,25 @@ function renderDiagram(parsed, canvas, options = {}) {
       y += sectionTitleHeight;
     }
 
-    drawRuler(ctx, gridX, y, diagramWidth, colwidth, bitWidth, bitOrder);
+    drawRuler(ctx, gridX, y, diagramWidth, colwidth, bitWidth, bitOrder, config.scale_interval);
     y += rulerHeight;
 
     for (const rowLayout of layout.rows) {
       const row = rowLayout.row;
-      const bitRange = config.numbering === "local" ? `0-${colwidth - 1}` : `${row.index * colwidth}-${row.index * colwidth + colwidth - 1}`;
+      const rowBitStart = row.fragments.length > 0
+        ? Math.min(...row.fragments.map((fragment) => fragment.start))
+        : row.index * colwidth;
+      const rowBitEnd = row.fragments.length > 0
+        ? Math.max(...row.fragments.map((fragment) => fragment.end))
+        : row.index * colwidth + colwidth - 1;
+      const bitRange = config.numbering === "local" ? `0-${colwidth - 1}` : `${rowBitStart}-${rowBitEnd}`;
       const caption = row.label || `Row ${row.index + 1}  ${bitRange}`;
       const actualRowHeight = rowLayout.height;
       drawRowCaption(ctx, caption, labelX, y + rowCaptionHeight, rowLabelWidth - 12);
       y += rowCaptionHeight;
 
       drawRowNote(ctx, rowLayout.noteLines, noteX, y, noteWidth, actualRowHeight);
-      drawRowGrid(ctx, gridX, y, diagramWidth, actualRowHeight, colwidth, bitWidth);
+      drawRowGrid(ctx, gridX, y, diagramWidth, actualRowHeight, colwidth, bitWidth, config.scale_interval);
 
       for (const fragment of row.fragments) {
         const field = fragment.field;
@@ -717,10 +961,19 @@ function renderDiagram(parsed, canvas, options = {}) {
         hitBoxes.push({ x, y, w, h, fragment });
       }
 
+      // Sparse packet: draw indicator for uncovered bit ranges
+      drawSparseGaps(ctx, row, gridX, y, actualRowHeight, colwidth, bitWidth, bitOrder);
+
       y += actualRowHeight + rowGap;
     }
 
     y += sectionGap;
+  }
+
+  // Description table
+  if (parsed.descTable && parsed.descTable.length > 0) {
+    y += 12;
+    y = drawDescTable(ctx, parsed.descTable, leftPad, y, canvasWidth - leftPad - rightPad, fontSize);
   }
 
   canvas._hitBoxes = hitBoxes;
@@ -763,7 +1016,8 @@ function drawSectionTitle(ctx, text, x, y, width, height, fontSize) {
   ctx.fillText(text, x + 12, y + height / 2);
 }
 
-function drawRuler(ctx, x, y, width, colwidth, bitWidth, bitOrder) {
+function drawRuler(ctx, x, y, width, colwidth, bitWidth, bitOrder, scaleInterval) {
+  const interval = scaleInterval || 8;
   ctx.strokeStyle = "#9aa49d";
   ctx.lineWidth = 1;
   ctx.beginPath();
@@ -776,7 +1030,7 @@ function drawRuler(ctx, x, y, width, colwidth, bitWidth, bitOrder) {
   ctx.textAlign = "center";
   ctx.textBaseline = "alphabetic";
 
-  const marks = buildRulerMarks(colwidth);
+  const marks = buildRulerMarks(colwidth, interval);
   drawRulerTick(ctx, x, y, "start");
   drawRulerTick(ctx, x + width, y, "start");
   for (const mark of marks) {
@@ -784,8 +1038,9 @@ function drawRuler(ctx, x, y, width, colwidth, bitWidth, bitOrder) {
       continue;
     }
     const markX = bitOrder === "desc" ? x + (colwidth - 1 - mark) * bitWidth : x + mark * bitWidth;
-    drawRulerTick(ctx, markX, y, mark % 8 === 0 || mark === colwidth - 1 ? "major" : "minor");
-    if (mark % 8 === 0 || mark === colwidth - 1) {
+    const isMajor = mark % interval === 0 || mark === colwidth - 1;
+    drawRulerTick(ctx, markX, y, isMajor ? "major" : "minor");
+    if (isMajor) {
       ctx.fillText(String(mark), markX, y + 10);
     }
   }
@@ -802,9 +1057,10 @@ function drawRulerTick(ctx, x, y, kind) {
   ctx.stroke();
 }
 
-function buildRulerMarks(colwidth) {
+function buildRulerMarks(colwidth, scaleInterval) {
+  const interval = scaleInterval || 8;
   const marks = new Set([0, colwidth]);
-  for (let bit = 8; bit < colwidth; bit += 8) {
+  for (let bit = interval; bit < colwidth; bit += interval) {
     marks.add(bit);
   }
   marks.add(colwidth - 1);
@@ -855,7 +1111,8 @@ function drawWrappedLines(ctx, lines, x, y, lineHeight, color) {
   }
 }
 
-function drawRowGrid(ctx, x, y, width, height, colwidth, bitWidth) {
+function drawRowGrid(ctx, x, y, width, height, colwidth, bitWidth, scaleInterval) {
+  const interval = scaleInterval || 8;
   ctx.fillStyle = "#fbfcfb";
   ctx.strokeStyle = "#d9dfdb";
   ctx.lineWidth = 1;
@@ -872,7 +1129,7 @@ function drawRowGrid(ctx, x, y, width, height, colwidth, bitWidth) {
 
   ctx.strokeStyle = "#c7cec8";
   ctx.beginPath();
-  for (let bit = 8; bit < colwidth; bit += 8) {
+  for (let bit = interval; bit < colwidth; bit += interval) {
     const lineX = x + bit * bitWidth;
     ctx.moveTo(lineX + 0.5, y);
     ctx.lineTo(lineX + 0.5, y + height);
@@ -880,30 +1137,261 @@ function drawRowGrid(ctx, x, y, width, height, colwidth, bitWidth) {
   ctx.stroke();
 }
 
+function drawSparseGaps(ctx, row, x, y, rowHeight, colwidth, bitWidth, bitOrder) {
+  const fragments = [...row.fragments].sort((a, b) => a.colStart - b.colStart);
+  const gaps = [];
+  let cursor = 0;
+
+  for (const frag of fragments) {
+    if (frag.colStart > cursor) {
+      gaps.push({ start: cursor, end: frag.colStart - 1 });
+    }
+    cursor = Math.max(cursor, frag.colEnd + 1);
+  }
+  if (cursor < colwidth) {
+    gaps.push({ start: cursor, end: colwidth - 1 });
+  }
+
+  if (gaps.length === 0 || (gaps.length === 1 && gaps[0].start === 0 && gaps[0].end === colwidth - 1)) {
+    return;
+  }
+
+  for (const gap of gaps) {
+    const gapX = bitOrder === "desc"
+      ? x + (colwidth - 1 - gap.end) * bitWidth
+      : x + gap.start * bitWidth;
+    const gapW = Math.max(2, (gap.end - gap.start + 1) * bitWidth);
+    ctx.save();
+    ctx.fillStyle = "rgba(120, 130, 124, 0.08)";
+    ctx.fillRect(gapX, y + 1, gapW, rowHeight - 1);
+    if (gapW > 20) {
+      ctx.fillStyle = "rgba(120, 130, 124, 0.18)";
+      ctx.font = 'italic 10px "Segoe UI", system-ui, sans-serif';
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("···", gapX + gapW / 2, y + rowHeight / 2);
+    }
+    ctx.restore();
+  }
+}
+
+function measureDescTableHeight(entries) {
+  if (!entries || entries.length === 0) {
+    return 0;
+  }
+  const titleHeight = 28;
+  const rowHeight = 26;
+  const headerHeight = 26;
+  return 12 + titleHeight + 6 + headerHeight + 2 + entries.length * (rowHeight + 1) + 4;
+}
+
+function drawDescTable(ctx, entries, x, y, maxWidth, fontSize) {
+  const titleHeight = 28;
+  const rowHeight = 26;
+  const headerHeight = 26;
+  const pad = 12;
+  const colNoW = Math.min(52, maxWidth * 0.08);
+  const colNameW = Math.min(160, maxWidth * 0.24);
+  const colBitW = Math.min(100, maxWidth * 0.16);
+  const colDescW = maxWidth - colNoW - colNameW - colBitW;
+  const colWidths = [colNoW, colNameW, colBitW, colDescW];
+
+  // Title bar
+  ctx.fillStyle = "#374151";
+  roundRect(ctx, x + 0.5, y + 0.5, maxWidth, titleHeight, 5);
+  ctx.fill();
+  ctx.fillStyle = "#f4fbf7";
+  ctx.font = `700 ${fontSize}px "Segoe UI", system-ui, sans-serif`;
+  ctx.textBaseline = "middle";
+  ctx.fillText("\u{1F4CB} 描述表 (Description Table)", x + pad, y + titleHeight / 2);
+
+  y += titleHeight + 6;
+
+  // Header
+  drawDescRow(ctx, x, y, colWidths, rowHeight, "#d1d5db", "#1f2937", true,
+    ["行号", "字段名称", "位范围", "描述"]);
+  y += headerHeight + 2;
+
+  // Data rows
+  for (let i = 0; i < entries.length; i += 1) {
+    const entry = entries[i];
+    const bgColor = i % 2 === 0 ? "#f9fafb" : "#f3f4f6";
+    drawDescRow(ctx, x, y, colWidths, rowHeight, bgColor, "#374151", false, [
+      entry.rowNumber ?? "-",
+      String(entry.label),
+      entry.bitRange || "-",
+      String(entry.description)
+    ]);
+    y += rowHeight + 1;
+  }
+
+  return y + 4;
+}
+
+function drawDescRow(ctx, x, y, widths, h, bgColor, textColor, isHeader, cells) {
+  const totalW = widths.reduce((sum, width) => sum + width, 0);
+  ctx.fillStyle = bgColor;
+  ctx.fillRect(x, y, totalW, h);
+
+  ctx.strokeStyle = "#d1d5db";
+  ctx.lineWidth = 0.5;
+  ctx.strokeRect(x + 0.5, y + 0.5, totalW, h);
+
+  ctx.fillStyle = textColor;
+  ctx.textBaseline = "middle";
+  const font = isHeader
+    ? `700 11px "Segoe UI", system-ui, sans-serif`
+    : `11px "Segoe UI", system-ui, sans-serif`;
+
+  let columnX = x;
+  for (let i = 0; i < cells.length; i += 1) {
+    const columnWidth = widths[i];
+    const useMono = i === 0 || i === 2;
+    ctx.font = useMono ? `11px "Cascadia Mono", Consolas, monospace` : font;
+    ctx.textAlign = i === 0 ? "center" : "left";
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(columnX, y, columnWidth, h);
+    ctx.clip();
+    const textX = i === 0 ? columnX + columnWidth / 2 : columnX + 8;
+    ctx.fillText(fitText(ctx, String(cells[i]), columnWidth - 10), textX, y + h / 2 + 1);
+    ctx.restore();
+
+    columnX += columnWidth;
+  }
+  ctx.textAlign = "start";
+
+  // Column dividers
+  ctx.strokeStyle = "#d1d5db";
+  ctx.lineWidth = 0.5;
+  ctx.beginPath();
+  columnX = x;
+  for (let i = 0; i < widths.length - 1; i += 1) {
+    columnX += widths[i];
+    ctx.moveTo(columnX + 0.5, y);
+    ctx.lineTo(columnX + 0.5, y + h);
+  }
+  ctx.stroke();
+}
+
+function getDisplayLabel(field) {
+  return field.options.label || field.label;
+}
+
 function drawCell(ctx, fragment, x, y, w, h, color, fontSize) {
   const field = fragment.field;
-  ctx.fillStyle = color;
-  roundRect(ctx, x + 0.5, y + 0.5, Math.max(0, w - 1), Math.max(0, h - 1), 4);
-  ctx.fill();
+  const displayLabel = getDisplayLabel(field);
+  const borderStyle = field.options.style || "solid";
+  const showNumber = field.options.number !== undefined ? !!field.options.number : true;
+  const shape = field.options.shape || "box";
+  const varLen = field.options.len !== undefined ? Number(field.options.len) || 0 : 0;
+  const hasIcon = field.options.icon !== undefined;
+  const bgValue = field.options.background;
 
-  ctx.strokeStyle = "#30343a";
-  ctx.lineWidth = 1;
-  ctx.stroke();
+  // background attribute overrides color when it's a CSS color value
+  let cellColor = color;
+  if (bgValue !== undefined) {
+    const bg = String(bgValue);
+    if (/^#[0-9a-fA-F]{3,8}$/.test(bg) || /^(rgb|hsl|var|currentColor|[a-z]+)/i.test(bg)) {
+      cellColor = bg;
+    }
+  }
+
+  ctx.fillStyle = cellColor;
+  if (shape === "ellipse") {
+    ellipsePath(ctx, x + w / 2, y + h / 2, Math.max(0, w / 2 - 1), Math.max(0, h / 2 - 1));
+    ctx.fill();
+    if (borderStyle !== "none") {
+      ctx.strokeStyle = "#30343a";
+      ctx.lineWidth = 1;
+      if (borderStyle === "dashed") {
+        ctx.setLineDash([4, 3]);
+      } else if (borderStyle === "dotted") {
+        ctx.setLineDash([2, 3]);
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  } else {
+    roundRect(ctx, x + 0.5, y + 0.5, Math.max(0, w - 1), Math.max(0, h - 1), 4);
+    ctx.fill();
+  }
+
+  // Variable-length indicator: zigzag right edge
+  if (varLen > 0 && shape !== "ellipse" && w > 8) {
+    ctx.save();
+    ctx.fillStyle = cellColor;
+    ctx.beginPath();
+    const zigX = x + w - 5;
+    ctx.moveTo(zigX, y + 0.5);
+    for (let zi = 0; zi < Math.floor(h / 4); zi += 1) {
+      const zy = y + zi * 4;
+      ctx.lineTo(zi % 2 === 0 ? zigX + 5 : zigX, zy + 2);
+    }
+    ctx.lineTo(x + w, y + h);
+    ctx.lineTo(x + w, y + 0.5);
+    ctx.closePath();
+    ctx.fill();
+    // redraw main border
+    if (borderStyle !== "none") {
+      ctx.strokeStyle = "#30343a";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+    // len label
+    if (w > 40 && h > 20) {
+      ctx.fillStyle = "rgba(17, 24, 39, 0.45)";
+      ctx.font = '9px "Cascadia Mono", Consolas, monospace';
+      ctx.textAlign = "right";
+      ctx.fillText(`len=${varLen}`, x + w - 5, y + h - 4);
+    }
+    ctx.restore();
+  }
+
+  if (borderStyle !== "none") {
+    ctx.strokeStyle = "#30343a";
+    ctx.lineWidth = 1;
+    if (borderStyle === "dashed") {
+      ctx.setLineDash([4, 3]);
+    } else if (borderStyle === "dotted") {
+      ctx.setLineDash([2, 3]);
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // Icon badge
+  if (hasIcon && w > 30 && h > 20) {
+    ctx.save();
+    ctx.fillStyle = "rgba(17, 24, 39, 0.62)";
+    ctx.beginPath();
+    ctx.arc(x + w - 10, y + 10, 7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#f0f4f1";
+    ctx.font = 'bold 9px "Segoe UI", system-ui, sans-serif';
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("i", x + w - 9.5, y + 10.5);
+    ctx.restore();
+  }
 
   ctx.fillStyle = field.options.textcolor || "#111827";
   ctx.font = `600 ${Math.max(8, Math.min(fontSize, h * 0.36))}px "Segoe UI", system-ui, sans-serif`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
 
-  const bitText = `${fragment.start}${fragment.start === fragment.end ? "" : `-${fragment.end}`}`;
-  ctx.save();
-  ctx.fillStyle = "rgba(17, 24, 39, 0.56)";
-  ctx.font = '10px "Cascadia Mono", Consolas, monospace';
-  ctx.textAlign = "left";
-  if (w > 30 && h > 26) {
-    ctx.fillText(bitText, x + 5, y + 13);
+  if (showNumber) {
+    const bitText = `${fragment.start}${fragment.start === fragment.end ? "" : `-${fragment.end}`}`;
+    ctx.save();
+    ctx.fillStyle = "rgba(17, 24, 39, 0.56)";
+    ctx.font = '10px "Cascadia Mono", Consolas, monospace';
+    ctx.textAlign = "left";
+    if (w > 30 && h > 26) {
+      ctx.fillText(bitText, x + 5, y + 13);
+    }
+    ctx.restore();
   }
-  ctx.restore();
 
   if (!fragment.drawLabel || w < 7 || h < 18) {
     ctx.textAlign = "start";
@@ -916,12 +1404,18 @@ function drawCell(ctx, fragment, x, y, w, h, color, fontSize) {
     ctx.save();
     ctx.translate(x + w / 2, y + h / 2);
     ctx.rotate(rotate === 90 ? Math.PI / 2 : -Math.PI / 2);
-    ctx.fillText(fitText(ctx, field.label, Math.max(10, h - 12)), 0, 0);
+    ctx.fillText(fitText(ctx, displayLabel, Math.max(10, h - 12)), 0, 0);
     ctx.restore();
   } else {
-    ctx.fillText(fitText(ctx, field.label, Math.max(6, w - 12)), x + w / 2, y + h / 2 + 3);
+    ctx.fillText(fitText(ctx, displayLabel, Math.max(6, w - 12)), x + w / 2, y + h / 2 + 3);
   }
   ctx.textAlign = "start";
+}
+
+function ellipsePath(ctx, cx, cy, rx, ry) {
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, Math.max(0, rx), Math.max(0, ry), 0, 0, Math.PI * 2);
+  ctx.closePath();
 }
 
 function roundRect(ctx, x, y, width, height, radius) {
@@ -1099,8 +1593,13 @@ function update() {
     dom.errorMessage.value = warningText;
     dom.errorMessage.textContent = warningText;
 
-    if (parsed.sections.length === 0) {
+    if (parsed.sections.length === 0 && (!parsed.descTable || parsed.descTable.length === 0)) {
       dom.statusInfo.textContent = "等待输入";
+      return;
+    }
+
+    if (parsed.sections.length === 0) {
+      dom.statusInfo.textContent = `描述表 ${parsed.descTable.length} 项, ${layout.width}x${layout.height}`;
       return;
     }
 
@@ -1113,7 +1612,7 @@ function update() {
     dom.errorMessage.value = `解析错误: ${error.message}`;
     dom.errorMessage.textContent = `解析错误: ${error.message}`;
     dom.statusInfo.textContent = "解析失败";
-    renderDiagram({ config: sanitizeConfig({}), sections: [], fields: [] }, dom.canvas, {
+    renderDiagram({ config: sanitizeConfig({}), sections: [], fields: [], descTable: [] }, dom.canvas, {
       width: Math.max(560, dom.previewWrap.clientWidth - 48),
       bitOrder: "asc",
       globalNote: "",
@@ -1159,12 +1658,13 @@ function openCanvasLabelEditor(hit) {
   closeCanvasLabelEditor(false);
 
   const field = hit.fragment.field;
+  const displayLabel = getDisplayLabel(field);
   const canvasRect = dom.canvas.getBoundingClientRect();
   const wrapRect = dom.previewWrap.getBoundingClientRect();
   const input = document.createElement("input");
   input.type = "text";
   input.className = "canvas-label-editor";
-  input.value = field.label;
+  input.value = displayLabel;
   input.setAttribute("aria-label", `编辑 ${field.start}-${field.end} 字段文字`);
 
   const width = Math.max(112, Math.min(320, hit.w + 28));
@@ -1178,8 +1678,8 @@ function openCanvasLabelEditor(hit) {
     input,
     field: { ...field },
     originalSource: dom.editor.value,
-    originalLabel: field.label,
-    currentLabel: field.label,
+    originalLabel: displayLabel,
+    currentLabel: displayLabel,
     sourceLineIndex: null
   };
 
@@ -1293,7 +1793,9 @@ function matchesFieldLine(line, field, expectedLabel = null) {
     if (!parsed || parsed.start !== field.start || parsed.end !== field.end) {
       return false;
     }
-    return expectedLabel === null || parsed.label === expectedLabel;
+    return expectedLabel === null
+      || parsed.label === expectedLabel
+      || String(parsed.options.label || "") === expectedLabel;
   } catch {
     return false;
   }
@@ -1317,18 +1819,35 @@ function replaceLabelInLine(line, nextLabel) {
     body = body.slice(0, -1).trimEnd();
   }
 
-  let options = "";
+  let labelText = body;
+  let optionsText = "";
   if (body.endsWith("]")) {
     const optionStart = findTrailingOptionStart(body);
     if (optionStart >= 0) {
       const rawOptions = body.slice(optionStart + 1, -1).trim();
       if (/[A-Za-z_]\w*\s*=/.test(rawOptions)) {
-        options = ` ${body.slice(optionStart).trim()}`;
+        labelText = body.slice(0, optionStart).trim();
+        optionsText = body.slice(optionStart).trim();
       }
     }
   }
 
-  const newCode = `${prefix}${formatLabelForSource(nextLabel)}${options}${semicolon}${trailingWhitespace}`;
+  // If the field has a label= option, update that; otherwise update the main label
+  let updatedOptions = optionsText;
+  if (optionsText && /\blabel\s*=/.test(optionsText)) {
+    updatedOptions = optionsText.replace(
+      /(\blabel\s*=\s*)(?:"([^"]*)"|'([^']*)'|(\S+))/,
+      (fullMatch, key, dqVal, sqVal, bareVal) => {
+        const currentVal = dqVal ?? sqVal ?? bareVal ?? "";
+        const quoted = dqVal !== undefined ? '"' : (sqVal !== undefined ? "'" : "");
+        return `${key}${quoted}${nextLabel}${quoted}`;
+      }
+    );
+    const newCode = `${prefix}${formatLabelForSource(labelText)} ${updatedOptions}${semicolon}${trailingWhitespace}`;
+    return comment ? `${newCode}${comment}` : newCode;
+  }
+
+  const newCode = `${prefix}${formatLabelForSource(nextLabel)}${optionsText ? ` ${optionsText}` : ""}${semicolon}${trailingWhitespace}`;
   return comment ? `${newCode}${comment}` : newCode;
 }
 
@@ -1420,7 +1939,8 @@ function installTooltip() {
       return;
     }
     const field = hit.fragment.field;
-    dom.canvas.title = `${field.start}-${field.end}: ${field.label}，双击可编辑`;
+    const desc = field.options.description ? `\n${field.options.description}` : "";
+    dom.canvas.title = `${field.start}-${field.end}: ${getDisplayLabel(field)}${desc}，双击可编辑`;
   });
 
   dom.canvas.addEventListener("dblclick", (event) => {
@@ -1492,4 +2012,8 @@ function closeHelp() {
   dom.helpButton.focus();
 }
 
-init();
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", init);
+} else {
+  init();
+}
