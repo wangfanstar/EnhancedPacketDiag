@@ -616,7 +616,7 @@ function renderDiagram(parsed, canvas, options = {}) {
   const topPad = 28;
   const bottomPad = 28;
   const noteWidth = 220;
-  const rowLabelWidth = 92;
+  const rowLabelWidth = 120;
   const leftGutter = noteWidth + rowLabelWidth;
   const minBitWidth = 12;
   const maxCanvasWidth = fitWidth ? requestedWidth : Math.max(requestedWidth, 1040);
@@ -698,7 +698,8 @@ function renderDiagram(parsed, canvas, options = {}) {
 
     for (const rowLayout of layout.rows) {
       const row = rowLayout.row;
-      const caption = row.label || (config.numbering === "local" ? `0-${colwidth - 1}` : `${row.index * colwidth}-${row.index * colwidth + colwidth - 1}`);
+      const bitRange = config.numbering === "local" ? `0-${colwidth - 1}` : `${row.index * colwidth}-${row.index * colwidth + colwidth - 1}`;
+      const caption = row.label || `Row ${row.index + 1}  ${bitRange}`;
       const actualRowHeight = rowLayout.height;
       drawRowCaption(ctx, caption, labelX, y + rowCaptionHeight, rowLabelWidth - 12);
       y += rowCaptionHeight;
